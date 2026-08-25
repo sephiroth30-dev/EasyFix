@@ -17,12 +17,16 @@ WPF— y **193 tests pasan, 2 se omiten** (los que dependen de Windows).
 | Evaluador de condiciones de servicio (el caso `SysMain` en HDD) | ✅ 15 tests |
 | Parser de resultados de winget | ✅ 13 tests |
 | Runner de procesos endurecido, `PathGuard`, certificados, config | ✅ |
-| Shell de la UI en WPF (ventana, tema, DI, logging) | ✅ compila; **sin ejecutar** (necesita Windows) |
+| Reglas de hallazgos de software (inicio, BitLocker, dominio) | ✅ lógica pura |
+| UI en WPF: inicio, analizando, reporte | ✅ compila; **sin ejecutar** (necesita Windows) |
+| `SystemProbe` — la capa de WMI, registro y Event Log | ⚠️ escrita, **sin ejecutar ni testear** |
 | Spike de contratos de Windows (`tools/spike`) | escrito, **sin correr** |
-| Los `IDiagnosticCheck` concretos (WMI), los fixes, el wizard de perfil | **pendiente: necesitan Windows** |
+| Los fixes, los handlers de deshacer, el wizard de perfil, winget | **pendiente** |
 
-Lo que falta es, casi todo, código que *llama* a Windows. La lógica que *decide* ya está escrita y
-verificada: qué se puede tocar, qué recomendar, cómo deshacerlo y en qué orden.
+`SystemProbe` es la única pieza no verificada, y es a propósito: concentra todas las llamadas a
+Windows en un archivo, así que correr el `.exe` en un equipo real la valida entera de una vez. Lo que
+*decide* —qué se puede tocar, qué recomendar, cómo deshacerlo y en qué orden— ya está escrito y
+testeado.
 
 ### Compilar desde macOS o Linux
 
@@ -133,7 +137,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 119 pasan, 2 se omiten fuera de Windows
+dotnet test           # 193 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash
