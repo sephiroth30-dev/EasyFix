@@ -4,7 +4,23 @@ Herramienta de técnico para Windows 10 y 11. Un `.exe` portable que llevás en 
 equipo, aplica las mejoras seguras con un click, instala el software base y repara los errores
 comunes del sistema. Todo reversible.
 
-**Estado: fase 0.** Andamiaje y spike de verificación listos. Todavía no hay código de aplicación.
+**Estado: fase 0 + núcleo de lógica pura.** Escrito pero **sin compilar** — el equipo de desarrollo
+actual es un Mac y WPF no compila ahí. Lo primero que hay que hacer en la VM es `dotnet build`.
+
+| Componente | Estado |
+|---|---|
+| Spike de contratos de Windows (`tools/spike`) | escrito, sin correr |
+| Clasificador de 3 capas | escrito + 20 tests |
+| Journal JSONL y motor de deshacer | escrito + 19 tests |
+| Limpiador junction-safe de temporales | escrito + 11 tests |
+| Runner de procesos endurecido | escrito + 5 tests |
+| Validación de IDs de winget, `PathGuard`, parser de certificados | escrito + tests |
+| Diagnósticos (WMI), fixes, UI en WPF | **pendiente** — necesitan la VM |
+
+Desviaciones conscientes del plan, por no tener compilador: la configuración se lee con
+`System.Text.Json` en vez de `Microsoft.Extensions.Configuration`, y el acceso a archivos usa un
+puerto propio de 9 métodos (`IFileTree`) en vez de `System.IO.Abstractions`. Motivo: cada dependencia
+extra es superficie de API que no se puede verificar a ciegas. Revisable cuando exista la VM.
 
 ---
 

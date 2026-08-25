@@ -7,21 +7,31 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <!-- Advertencias como errores: el plan prohíbe `any`-equivalentes y nulls sin comprobar. -->
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Nullability como ERROR: es la clase de bug que más importa acá (una ruta null que llega a
+         un Delete). El resto de advertencias quedan como advertencias: con `TreatWarningsAsErrors`
+         global, los analizadores CA (CA1031 catch general, CA1848 logging, CA1416 platform) frenan
+         el build por cosas de estilo, y este código todavía no pasó por un compilador. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Default</AnalysisMode>
+
     <!-- Este proyecto NO debe referenciar WPF. Se verifica con un test de arquitectura. -->
     <UseWPF>false</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Superficie de NuGet deliberadamente mínima: solo APIs estables y muy conocidas.
+         La configuración se lee con System.Text.Json (BCL) en vez de
+         Microsoft.Extensions.Configuration, y el árbol de archivos usa un puerto propio de 9
+         métodos (IFileTree) en vez de System.IO.Abstractions. Motivo: sin compilador disponible,
+         cada dependencia extra es API que no puedo verificar. Es una desviación consciente del
+         plan; revisable cuando exista la VM. -->
     <PackageReference Include="System.Management" Version="8.0.0" />
-    <PackageReference Include="System.IO.Abstractions" Version="21.0.29" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.2" />
-    <PackageReference Include="Serilog" Version="4.1.0" />
   </ItemGroup>
 
 </Project>
