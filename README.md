@@ -5,18 +5,24 @@ equipo, aplica las mejoras seguras con un click, instala el software base y repa
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **119 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **193 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
 | Clasificador de 3 capas | ✅ 20 tests |
 | Journal JSONL y motor de deshacer | ✅ 25 tests (incluye ida y vuelta a disco real) |
 | Limpiador junction-safe de temporales | ✅ 15 tests, incluido uno con **un symlink real** |
-| Runner de procesos endurecido | ✅ |
-| `PathGuard`, parser de certificados, IDs de winget, loader de config | ✅ |
+| Motor de diagnóstico (paralelo, timeout por chequeo, rápido vs. profundo) | ✅ 13 tests |
+| Motor de recomendación de hardware | ✅ 26 tests |
+| Evaluador de condiciones de servicio (el caso `SysMain` en HDD) | ✅ 15 tests |
+| Parser de resultados de winget | ✅ 13 tests |
+| Runner de procesos endurecido, `PathGuard`, certificados, config | ✅ |
 | Shell de la UI en WPF (ventana, tema, DI, logging) | ✅ compila; **sin ejecutar** (necesita Windows) |
 | Spike de contratos de Windows (`tools/spike`) | escrito, **sin correr** |
-| Diagnósticos (WMI), fixes, wizard de perfil, módulo winget | **pendiente** |
+| Los `IDiagnosticCheck` concretos (WMI), los fixes, el wizard de perfil | **pendiente: necesitan Windows** |
+
+Lo que falta es, casi todo, código que *llama* a Windows. La lógica que *decide* ya está escrita y
+verificada: qué se puede tocar, qué recomendar, cómo deshacerlo y en qué orden.
 
 ### Compilar desde macOS o Linux
 

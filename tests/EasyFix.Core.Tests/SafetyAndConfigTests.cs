@@ -150,31 +150,10 @@ public sealed class SafeProcessRunnerTests
 
 public sealed class OptionsLoaderTests
 {
-    /// <summary>
-    /// Parsea el <c>appsettings.json</c> real del repo. Si alguien renombra una clave del archivo y
-    /// no toca el modelo, este test lo agarra.
-    /// </summary>
-    private static string RealAppSettingsPath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            string candidate = Path.Combine(dir.FullName, OptionsLoader.FileName);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("No se encontró appsettings.json subiendo desde la salida del build.");
-    }
-
     [Fact]
     public void ParseaElAppSettingsRealDelRepo()
     {
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         Assert.Equal(15, options.Thresholds.LowDiskFreePercent);
         Assert.Equal(85, options.Thresholds.CommitPressurePercent);
@@ -190,7 +169,7 @@ public sealed class OptionsLoaderTests
     [Fact]
     public void TodosLosIdsDeWingetConfigurados_PasanLaValidacion()
     {
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         Assert.All(options.WingetPackages, p => Assert.True(
             WingetPackageId.IsValid(p.Id), $"ID inválido en appsettings.json: '{p.Id}'"));
@@ -201,7 +180,7 @@ public sealed class OptionsLoaderTests
     {
         // En HDD, Superfetch AYUDA. Si esta entrada pierde su condición, la app empezaría a
         // degradar equipos con disco mecánico.
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         ServiceCandidate sysMain = Assert.Single(options.Services.OfferToDisable, s => s.Name == "SysMain");
 
@@ -211,7 +190,7 @@ public sealed class OptionsLoaderTests
     [Fact]
     public void Spooler_SoloSeOfreceSiNoHayImpresoras()
     {
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         ServiceCandidate spooler = Assert.Single(options.Services.OfferToDisable, s => s.Name == "Spooler");
 
@@ -221,7 +200,7 @@ public sealed class OptionsLoaderTests
     [Fact]
     public void TeamsEnLaListaBlanca_EstaLimitadoAEquiposFueraDeDominio()
     {
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         AllowlistEntry teams = Assert.Single(options.Classifier.AutoDisableAllowlist, e => e.Product.Contains("Teams", StringComparison.Ordinal));
 
@@ -267,7 +246,7 @@ public sealed class OptionsLoaderTests
     [WindowsOnlyFact]
     public void ProtectedPathPrefixes_ExpandenSystemRoot_EnWindows()
     {
-        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
 
         Assert.NotEmpty(options.Classifier.HardBlock.ProtectedPathPrefixes);
         Assert.All(options.Classifier.HardBlock.ProtectedPathPrefixes,

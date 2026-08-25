@@ -10,7 +10,10 @@ using EasyFix.Core.Abstractions;
 using EasyFix.Core.Classification;
 using EasyFix.Core.Cleaning;
 using EasyFix.Core.Configuration;
+using EasyFix.Core.Diagnostics;
+using EasyFix.Core.Fixes;
 using EasyFix.Core.Processes;
+using EasyFix.Core.Recommendations;
 using EasyFix.Core.Rollback;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -83,6 +86,12 @@ public partial class App : Application
         services.AddSingleton<StartupClassifier>();
         services.AddSingleton<JunctionSafeCleaner>();
         services.AddSingleton<UndoEngine>();
+        services.AddSingleton<HardwareAdvisor>();
+        services.AddSingleton<ServiceConditionEvaluator>();
+
+        // Los IDiagnosticCheck se registran acá a medida que se implementen; DiagnosticEngine
+        // recibe la colección, que hoy está vacía a propósito.
+        services.AddSingleton<DiagnosticEngine>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
