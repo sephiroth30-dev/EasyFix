@@ -15,6 +15,7 @@
     <Color x:Key="AccentColor">#FF4C9AFF</Color>
     <Color x:Key="DangerColor">#FFFF6B6B</Color>
     <Color x:Key="WarningColor">#FFE8B657</Color>
+    <Color x:Key="OkColor">#FF5EC98A</Color>
 
     <SolidColorBrush x:Key="BackgroundBrush"   Color="{StaticResource BackgroundColor}" />
     <SolidColorBrush x:Key="SurfaceBrush"      Color="{StaticResource SurfaceColor}" />
@@ -25,6 +26,7 @@
     <SolidColorBrush x:Key="AccentBrush"       Color="{StaticResource AccentColor}" />
     <SolidColorBrush x:Key="DangerBrush"       Color="{StaticResource DangerColor}" />
     <SolidColorBrush x:Key="WarningBrush"      Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="OkBrush"           Color="{StaticResource OkColor}" />
 
     <!-- Segoe UI Variable existe en Win11; Segoe UI es el fallback en Win10. -->
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -158,6 +160,42 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
                             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Casilla de la lista de programas. La de Windows se ve mal sobre fondo oscuro. -->
+    <Style x:Key="AppCheckBox" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Box" Width="16" Height="16" CornerRadius="3"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                            Background="Transparent" SnapsToDevicePixels="True">
+                        <Path x:Name="Tick" Visibility="Collapsed"
+                              Data="M 2,6 L 5.5,9.5 L 11,3"
+                              Stroke="{StaticResource BackgroundBrush}" StrokeThickness="1.8"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

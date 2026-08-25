@@ -60,6 +60,51 @@
                         BorderThickness="0,0,0,1" VerticalAlignment="Bottom" />
             </Grid>
         </DataTemplate>
+
+        <!-- Un programa de la lista: casilla, nombre, nota y estado. -->
+        <DataTemplate x:Key="AppRowTemplate" DataType="{x:Type vm:AppChoice}">
+            <Grid Margin="0,0,0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="11" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <CheckBox Grid.Column="0" Style="{StaticResource AppCheckBox}"
+                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                          Margin="0,11,0,0" />
+
+                <StackPanel Grid.Column="2" Margin="0,9,0,10">
+                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Note}" Style="{StaticResource MutedText}"
+                               FontSize="11" Margin="0,2,0,0"
+                               Visibility="{Binding Note, Converter={StaticResource EmptyVis}}" />
+                </StackPanel>
+
+                <TextBlock Grid.Column="3" Text="{Binding Status}" FontFamily="Consolas"
+                           FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0"
+                           Visibility="{Binding Status, Converter={StaticResource EmptyVis}}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatusKind}" Value="ok">
+                                    <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StatusKind}" Value="crit">
+                                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,0,1" VerticalAlignment="Bottom" />
+            </Grid>
+        </DataTemplate>
     </Window.Resources>
 
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
@@ -194,6 +239,53 @@
                     <Button Content="Mejorar rendimiento" Command="{Binding ApplyFixesCommand}"
                             Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
                             IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== 4. Instalar programas ===== -->
+            <Grid Grid.Row="1" Margin="20,4,20,20"
+                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Apps}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Margin="0,4,0,10">
+                    <TextBlock Text="Instalar programas" Style="{StaticResource TitleText}" FontSize="15" />
+                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,4,0,0"
+                               Text="Se descargan del repositorio oficial de Microsoft en el momento, así que siempre entra la última versión. El equipo necesita internet." />
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Apps}"
+                                      ItemTemplate="{StaticResource AppRowTemplate}"
+                                      IsEnabled="{Binding IsInstalling, Converter={StaticResource Invert}}" />
+
+                        <TextBlock Text="{Binding InstallProgressLabel}" Style="{StaticResource MutedText}"
+                                   FontSize="11.5" Margin="0,14,0,0"
+                                   Visibility="{Binding InstallProgressLabel, Converter={StaticResource EmptyVis}}" />
+
+                        <ProgressBar IsIndeterminate="True" Height="3" Margin="0,8,0,0"
+                                     Background="{StaticResource BorderBrush}"
+                                     Foreground="{StaticResource AccentBrush}" BorderThickness="0"
+                                     Visibility="{Binding IsInstalling, Converter={StaticResource BoolVis}}" />
+
+                        <Border Style="{StaticResource StatusPanel}"
+                                Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
+                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
+                                       FontSize="11.5" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
+                    <Button Content="Volver" Command="{Binding BackCommand}"
+                            Style="{StaticResource GhostButton}" Width="110"
+                            IsEnabled="{Binding IsInstalling, Converter={StaticResource Invert}}" />
+                    <Button Content="Instalar los marcados" Command="{Binding RunInstallCommand}"
+                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
                 </StackPanel>
             </Grid>
 

@@ -5,7 +5,7 @@ equipo, aplica las mejoras seguras con un click, instala el software base y repa
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **193 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **210 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
@@ -21,7 +21,8 @@ WPF— y **193 tests pasan, 2 se omiten** (los que dependen de Windows).
 | UI en WPF: inicio, analizando, reporte | ✅ compila; **sin ejecutar** (necesita Windows) |
 | `SystemProbe` — la capa de WMI, registro y Event Log | ⚠️ escrita, **sin ejecutar ni testear** |
 | Spike de contratos de Windows (`tools/spike`) | escrito, **sin correr** |
-| Los fixes, los handlers de deshacer, el wizard de perfil, winget | **pendiente** |
+| Módulo winget: instalar programas | ✅ 17 tests; el localizador de `winget.exe` sin ejecutar |
+| Los fixes, los handlers de deshacer, el wizard de perfil | **pendiente** |
 
 `SystemProbe` es la única pieza no verificada, y es a propósito: concentra todas las llamadas a
 Windows en un archivo, así que correr el `.exe` en un equipo real la valida entera de una vez. Lo que
@@ -137,7 +138,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 193 pasan, 2 se omiten fuera de Windows
+dotnet test           # 210 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash
@@ -161,12 +162,39 @@ Al abrirlo, Windows pide permiso de administrador (va declarado en el manifiesto
 se puede leer el estado SMART del disco ni consultar los servicios. Y como el `.exe` no está firmado,
 SmartScreen lo va a marcar como desconocido — «Más información» → «Ejecutar de todas formas».
 
-### Qué hace la primera versión
+### Qué hace la versión actual
 
-Solo **diagnóstico, de solo lectura**. «Analizar el equipo» mide en serio —tipo y salud del disco,
-RAM y presión de memoria, espacio libre, programas de inicio, tiempo de arranque, antivirus activos,
-BitLocker— y muestra el reporte separado en *lo que puedo arreglar* y *lo que necesita hardware*. Los
-botones que aplicarían cambios avisan que no están conectados en lugar de simular trabajo.
+**Diagnóstico** (solo lectura) e **instalación de programas**. Los botones que aplicarían cambios al
+sistema avisan que no están conectados en lugar de simular trabajo.
+
+- **Analizar el equipo** mide en serio —tipo y salud del disco, RAM y presión de memoria, espacio
+  libre, programas de inicio con su retraso medido, tiempo de arranque, antivirus activos, BitLocker,
+  dominio— y muestra el reporte separado en *lo que puedo arreglar* y *lo que necesita hardware*.
+- **Instalar programas** instala con winget, en serie, en silencio.
+
+### Todo se descarga en el momento
+
+Nada viene empaquetado dentro del `.exe`: los 69 MiB son solo el runtime de .NET. winget baja cada
+programa del repositorio oficial de Microsoft en el instante de instalar, así que **siempre entra la
+última versión publicada** y no hay que regenerar el ejecutable cuando Chrome saque una versión nueva.
+El equipo del cliente necesita internet.
+
+Agregar un programa es una línea en `appsettings.json`; el ID se busca con `winget search <nombre>`.
+
+| Programa | ID de winget | Por defecto |
+|---|---|:-:|
+| Google Chrome | `Google.Chrome` | ✓ |
+| Adobe Acrobat Reader | `Adobe.Acrobat.Reader.64-bit` | ✓ |
+| 7-Zip | `7zip.7zip` | ✓ |
+| Visual C++ Redist x64 / x86 | `Microsoft.VCRedist.2015+.x64` / `.x86` | ✓ |
+| **RustDesk** | `RustDesk.RustDesk` | ✓ |
+| VLC · Notepad++ · Firefox · AnyDesk | — | |
+
+**Sobre encontrar `winget.exe` en un proceso elevado:** winget se instala como paquete MSIX *por
+usuario* y se invoca por un alias en `%LOCALAPPDATA%\Microsoft\WindowsApps`. Al elevar, esa variable
+puede resolver al perfil del administrador, donde el alias no existe. Por eso se busca primero la
+instalación real del paquete bajo `C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*`, que
+es global, y el alias queda como respaldo. Nunca se resuelve por `PATH`.
 
 ```powershell
 dotnet run --project src\EasyFix.App    # desde el repo, en Windows

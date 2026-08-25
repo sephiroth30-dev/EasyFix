@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using EasyFix.Core.Apps;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Diagnostics;
 using EasyFix.Core.Recommendations;
@@ -14,6 +15,7 @@ public enum Screen
     Home,
     Scanning,
     Report,
+    Apps,
 }
 
 /// <summary>Una línea del reporte, ya lista para mostrar.</summary>
@@ -32,6 +34,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly EasyFixOptions _options;
     private readonly SystemProbe _probe;
     private readonly HardwareAdvisor _advisor;
+    private readonly WingetService _winget;
     private readonly ILogger<MainViewModel> _logger;
 
     private CancellationTokenSource? _scanCts;
@@ -40,17 +43,25 @@ public sealed partial class MainViewModel : ObservableObject
         EasyFixOptions options,
         SystemProbe probe,
         HardwareAdvisor advisor,
+        WingetService winget,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(advisor);
+        ArgumentNullException.ThrowIfNull(winget);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options;
         _probe = probe;
         _advisor = advisor;
+        _winget = winget;
         _logger = logger;
+
+        foreach (WingetPackage package in options.WingetPackages)
+        {
+            Apps.Add(new AppChoice(package));
+        }
 
         AnalyzeCommand = new AsyncRelayCommand(AnalyzeAsync);
         CancelCommand = new RelayCommand(() => _scanCts?.Cancel());
@@ -60,10 +71,13 @@ public sealed partial class MainViewModel : ObservableObject
             "«Reparar errores» todavía no está implementado. Faltan las llamadas a DISM, SFC y chkdsk.",
             warning: true));
 
-        InstallAppsCommand = new RelayCommand(() => SetStatus(
-            $"«Instalar programas» todavía no está implementado. Hay {_options.WingetPackages.Count} " +
-            "paquetes configurados y listos para cuando se conecte winget.",
-            warning: true));
+        InstallAppsCommand = new RelayCommand(() =>
+        {
+            StatusMessage = null;
+            CurrentScreen = Screen.Apps;
+        });
+
+        RunInstallCommand = new AsyncRelayCommand(InstallSelectedAsync, () => !IsInstalling);
 
         ApplyFixesCommand = new RelayCommand(() => SetStatus(
             "Todavía no se aplica ningún cambio: falta el servicio de punto de restauración. " +
@@ -77,6 +91,7 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand BackCommand { get; }
     public IRelayCommand RepairCommand { get; }
     public IRelayCommand InstallAppsCommand { get; }
+    public IAsyncRelayCommand RunInstallCommand { get; }
     public IRelayCommand ApplyFixesCommand { get; }
 
     [ObservableProperty]
@@ -113,6 +128,75 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary><c>true</c> cuando el disco está fallando: se bloquea todo lo demás.</summary>
     [ObservableProperty]
     private bool _fixesBlocked;
+
+    /// <summary>Los programas configurados en appsettings.json, con su casilla.</summary>
+    public ObservableCollection<AppChoice> Apps { get; } = new();
+
+    [ObservableProperty]
+    private bool _isInstalling;
+
+    [ObservableProperty]
+    private string? _installProgressLabel;
+
+    partial void OnIsInstallingChanged(bool value) => RunInstallCommand.NotifyCanExecuteChanged();
+
+    /// <summary>
+    /// Instala los programas marcados. Cada uno se descarga del repositorio oficial de Microsoft en
+    /// el momento, así que siempre entra la última versión publicada.
+    /// </summary>
+    private async Task InstallSelectedAsync()
+    {
+        List<AppChoice> selected = Apps.Where(a => a.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            SetStatus("No hay ningún programa marcado.", warning: false);
+            return;
+        }
+
+        IsInstalling = true;
+        StatusMessage = null;
+        foreach (AppChoice app in selected) { app.Status = null; }
+
+        var byId = selected.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
+
+        var progress = new Progress<InstallProgress>(p =>
+        {
+            InstallProgressLabel = p.Finished is null
+                ? $"({p.Index}/{p.Total}) Descargando e instalando {p.DisplayName}…"
+                : $"({p.Index}/{p.Total}) {p.DisplayName}";
+
+            if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
+
+            if (p.Finished is null) { app.MarkInstalling(); }
+            else { app.MarkResult(p.Finished); }
+        });
+
+        try
+        {
+            IReadOnlyList<WingetResult> results = await _winget.InstallAsync(
+                selected.Select(a => a.Package).ToList(), progress, CancellationToken.None);
+
+            InstallProgressLabel = null;
+            SetStatus(
+                WingetResultParser.Summarize(results),
+                warning: results.Any(r => !r.PackageAvailable));
+
+            foreach (WingetResult failed in results.Where(r => !r.PackageAvailable))
+            {
+                _logger.LogWarning("{PackageId}: {Detail}", failed.PackageId, failed.Detail);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "La instalación falló.");
+            InstallProgressLabel = null;
+            SetStatus($"La instalación falló: {ex.GetType().Name}: {ex.Message}", warning: true);
+        }
+        finally
+        {
+            IsInstalling = false;
+        }
+    }
 
     private async Task AnalyzeAsync()
     {

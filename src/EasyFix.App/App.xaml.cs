@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using EasyFix.App.ViewModels;
 using EasyFix.App.Views;
 using EasyFix.Core.Abstractions;
+using EasyFix.Core.Apps;
 using EasyFix.Core.Classification;
 using EasyFix.Core.Cleaning;
 using EasyFix.Core.Configuration;
@@ -88,6 +89,8 @@ public partial class App : Application
         services.AddSingleton<UndoEngine>();
         services.AddSingleton<HardwareAdvisor>();
         services.AddSingleton<SystemProbe>();
+        services.AddSingleton<IWingetLocator, WingetLocator>();
+        services.AddSingleton<WingetService>();
         services.AddSingleton<ServiceConditionEvaluator>();
 
         // Los IDiagnosticCheck se registran acá a medida que se implementen; DiagnosticEngine
