@@ -255,8 +255,16 @@ su raíz esperada antes de borrar o copiar.
 **Borrado de temporales:** enumeración manual comprobando `FileAttributes.ReparsePoint`. Un junction
 dentro de `%TEMP%` apuntando a `Documents` convertiría la limpieza en borrado de datos del cliente.
 
-El documento de trabajo completo —estado actual, decisiones, qué falta y en qué orden— está en
-[`docs/PLAN.md`](docs/PLAN.md).
+## Documentación
+
+| Documento | Para qué |
+|---|---|
+| [`docs/PRUEBAS.md`](docs/PRUEBAS.md) | Qué probar en Windows, en qué orden, y qué capturar cuando algo falla |
+| [`docs/PLAN.md`](docs/PLAN.md) | Documento de trabajo: estado actual, decisiones, qué falta y en qué orden |
+| [`CHANGELOG.md`](CHANGELOG.md) | Versiones, con el resultado de cada prueba real |
+
+La versión vive en `Directory.Build.props` — un solo lugar. Se ve en la barra de título de la app y en
+Propiedades → Detalles del `.exe`.
 
 ---
 

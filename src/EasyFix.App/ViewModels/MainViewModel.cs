@@ -137,6 +137,18 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>"por Andrés Hernández", o vacío si no hay nombre configurado.</summary>
     public string? Attribution => _options.Branding.Attribution;
 
+    /// <summary>
+    /// Versión del ejecutable, visible en la ventana.
+    /// </summary>
+    /// <remarks>
+    /// Está a la vista a propósito: cuando se prueban varios builds seguidos, un reporte de error sin
+    /// versión no se puede atar a nada. Sale del ensamblado, no de la configuración, así que no se
+    /// puede desincronizar del binario.
+    /// </remarks>
+    public string Version =>
+        System.Reflection.Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString(3) ?? "?";
+
     /// <summary>Lo que se puede arreglar sin comprar nada.</summary>
     public ObservableCollection<ReportRow> SoftwareRows { get; } = new();
 

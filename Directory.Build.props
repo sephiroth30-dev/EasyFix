@@ -1,0 +1,41 @@
+<Project>
+
+  <!--
+    Fuente única de la versión y de la marca.
+
+    Estas propiedades se heredan en los tres proyectos, así que subir de versión es editar UNA línea
+    acá. Antes estaban duplicadas en EasyFix.App.csproj, que es donde se desincronizan las cosas.
+
+    Convención de versionado — SemVer adaptado a que esto no es una librería:
+      MAJOR  cambio que rompe la configuración o el formato del journal
+      MINOR  capacidad nueva: un fix, una sonda, una pantalla
+      PATCH  corrección de algo que estaba mal
+  -->
+
+  <PropertyGroup>
+    <Version>0.3.0</Version>
+    <FileVersion>0.3.0.0</FileVersion>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
+
+    <Product>EasyFix</Product>
+    <Company>Andrés Hernández</Company>
+    <Authors>Andrés Hernández</Authors>
+    <Copyright>© 2026 Andrés Hernández</Copyright>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Comunes a los tres proyectos. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Nullability como error: es la clase de bug que más importa acá (una ruta null que llega a un
+         Delete). El resto de advertencias quedan como advertencias. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Default</AnalysisMode>
+  </PropertyGroup>
+
+</Project>

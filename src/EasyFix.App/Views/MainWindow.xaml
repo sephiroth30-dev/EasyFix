@@ -127,6 +127,11 @@
                     <TextBlock Text="{Binding Attribution}" Style="{StaticResource MutedText}"
                                FontSize="11" VerticalAlignment="Center" Margin="8,1,0,0"
                                Visibility="{Binding Attribution, Converter={StaticResource EmptyVis}}" />
+                    <!-- La versión va a la vista: un reporte de error sin versión no se puede atar
+                         a ningún build. -->
+                    <TextBlock Text="{Binding Version, StringFormat=v{0}}" FontFamily="Consolas"
+                               FontSize="10" VerticalAlignment="Center" Margin="8,2,0,0"
+                               Foreground="{StaticResource TextMutedBrush}" Opacity="0.7" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="—" Style="{StaticResource ChromeButton}" Click="Minimize_Click"

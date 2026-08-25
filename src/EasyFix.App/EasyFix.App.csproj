@@ -4,28 +4,13 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <WarningsAsErrors>nullable</WarningsAsErrors>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest</AnalysisLevel>
-    <AnalysisMode>Default</AnalysisMode>
 
     <AssemblyName>EasyFix</AssemblyName>
     <RootNamespace>EasyFix.App</RootNamespace>
 
-    <!-- Metadata del ejecutable: la marca queda en las propiedades del archivo en Windows, así que
-         viaja con el .exe aunque se copie sin el appsettings.json. -->
-    <Product>EasyFix</Product>
-    <Company>Andrés Hernández</Company>
-    <Authors>Andrés Hernández</Authors>
-    <Copyright>© 2026 Andrés Hernández</Copyright>
+    <!-- La versión y la marca vienen de Directory.Build.props: fuente única. -->
     <AssemblyTitle>EasyFix — Diagnóstico y reparación de Windows</AssemblyTitle>
     <Description>Herramienta de técnico: diagnostica, repara e instala software base en equipos Windows.</Description>
-    <Version>0.3.0</Version>
-    <FileVersion>0.3.0.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Permite COMPILAR el proyecto WPF desde macOS/Linux: el SDK baja el reference pack de

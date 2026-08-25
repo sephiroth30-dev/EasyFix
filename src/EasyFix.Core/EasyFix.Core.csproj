@@ -4,19 +4,7 @@
     <!-- net8.0-windows y no net8.0: System.Management y todo el acceso a WMI/registro son
          Windows-only. Declararlo explícito evita advertencias CA1416 en cada llamada. -->
     <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
-
-    <!-- Nullability como ERROR: es la clase de bug que más importa acá (una ruta null que llega a
-         un Delete). El resto de advertencias quedan como advertencias: con `TreatWarningsAsErrors`
-         global, los analizadores CA (CA1031 catch general, CA1848 logging, CA1416 platform) frenan
-         el build por cosas de estilo, y este código todavía no pasó por un compilador. -->
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <WarningsAsErrors>nullable</WarningsAsErrors>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest</AnalysisLevel>
-    <AnalysisMode>Default</AnalysisMode>
+    <!-- Nullability, analizadores e ImplicitUsings vienen de Directory.Build.props. -->
 
     <!-- Este proyecto NO debe referenciar WPF. Se verifica con un test de arquitectura. -->
     <UseWPF>false</UseWPF>
