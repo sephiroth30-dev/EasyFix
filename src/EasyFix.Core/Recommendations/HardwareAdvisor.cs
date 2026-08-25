@@ -29,13 +29,19 @@ public enum RecommendationPriority
 /// <c>true</c> cuando aplicar fixes sería contraproducente o peligroso. Hoy solo lo activa un disco
 /// con SMART fallando.
 /// </param>
+/// <param name="NeedsHardware">
+/// <c>true</c> cuando resolverlo exige comprar algo o abrir el equipo. Es lo que separa las dos
+/// secciones del reporte: mezclar "puedo limpiar esto" con "hay que comprar un SSD" en una sola
+/// lista es lo que convierte a estas herramientas en humo.
+/// </param>
 public sealed record Recommendation(
     string Id,
     RecommendationPriority Priority,
     string Title,
     string Detail,
     Metric? Evidence = null,
-    bool BlocksFixes = false);
+    bool BlocksFixes = false,
+    bool NeedsHardware = false);
 
 /// <summary>
 /// Traduce lo medido en recomendaciones de hardware.
@@ -108,7 +114,8 @@ public sealed class HardwareAdvisor
             "SMART predice una falla del disco. Respaldá los datos hoy y reemplazá el disco. " +
             "No tiene sentido optimizar: cada escritura acerca la falla y puede perderse todo.",
             new Metric("Estado SMART", "Predice falla"),
-            BlocksFixes: true));
+            BlocksFixes: true,
+            NeedsHardware: true));
     }
 
     private static void AddMechanicalDisk(SystemSnapshot s, List<Recommendation> result)
@@ -156,7 +163,8 @@ public sealed class HardwareAdvisor
             RecommendationPriority.TopImpact,
             "Cambiar el disco mecánico por un SSD",
             detail,
-            evidence));
+            evidence,
+            NeedsHardware: true));
     }
 
     private void AddInsufficientRam(SystemSnapshot s, List<Recommendation> result)
@@ -215,7 +223,8 @@ public sealed class HardwareAdvisor
             priority,
             "Ampliar la memoria RAM",
             detail.ToString(),
-            new Metric("RAM instalada", Format(ramGb), "GB")));
+            new Metric("RAM instalada", Format(ramGb), "GB"),
+            NeedsHardware: true));
     }
 
     private void AddLowDiskSpace(SystemSnapshot s, List<Recommendation> result)
@@ -255,7 +264,8 @@ public sealed class HardwareAdvisor
             $"{_thresholds.DiskLatencyWarnMs} ms esperables. En un SSD esto suele indicar que está " +
             "casi lleno, que perdió rendimiento por desgaste, o que el controlador está en modo IDE " +
             "en vez de AHCI.",
-            new Metric("Latencia del disco", Format(latency), "ms")));
+            new Metric("Latencia del disco", Format(latency), "ms"),
+            NeedsHardware: true));
     }
 
     private void AddBatteryWear(SystemSnapshot s, List<Recommendation> result)
@@ -271,7 +281,8 @@ public sealed class HardwareAdvisor
             "La batería está desgastada",
             $"La batería perdió {Format(wear)} % de su capacidad original. Además de durar menos, " +
             "hace que el procesador se limite cuando el equipo anda sin cargador.",
-            new Metric("Desgaste de batería", Format(wear), "%")));
+            new Metric("Desgaste de batería", Format(wear), "%"),
+            NeedsHardware: true));
     }
 
     private void AddCpuThrottling(SystemSnapshot s, List<Recommendation> result)
@@ -290,7 +301,9 @@ public sealed class HardwareAdvisor
             $"{Format(percent)} % de su frecuencia máxima. Lo habitual es que sea calor: ventilador " +
             "sucio o pasta térmica seca. Limpiar y recambiar la pasta suele recuperar el rendimiento " +
             "sin cambiar nada.",
-            new Metric("Frecuencia del CPU", Format(percent), "% del máximo")));
+            // Limpiar el ventilador y recambiar la pasta térmica es trabajo físico, no software.
+            new Metric("Frecuencia del CPU", Format(percent), "% del máximo"),
+            NeedsHardware: true));
     }
 
     private static void AddConflictingAntivirus(SystemSnapshot s, List<Recommendation> result)

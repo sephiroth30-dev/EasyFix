@@ -141,17 +141,31 @@ dotnet test --filter 'Category!=RequiresWindows'   # solo lo que corre en cualqu
 dotnet test --filter 'Category!=Integration'       # solo lógica pura, sin tocar el disco
 ```
 
-### Ejecutar: solo en Windows
+### Generar el `.exe` portable
 
-```powershell
-dotnet run --project src\EasyFix.App    # pide UAC al arrancar
-```
-
-El `.exe` portable para el USB (se puede *publicar* desde macOS, no ejecutar):
+Se puede publicar desde macOS o Linux; ejecutarlo, solo en Windows.
 
 ```bash
-dotnet publish src/EasyFix.App -c Release
-# salida: un solo EasyFix.exe (~70 MB), sin runtime a instalar en el equipo del cliente
+dotnet publish src/EasyFix.App -c Release -o publish
+```
+
+Sale un único `publish/EasyFix.exe` — `PE32+ executable (GUI) x86-64`, **69 MiB**. Trae el runtime de
+.NET adentro comprimido, así que no hay que instalar nada en el equipo del cliente. Se copia al
+pendrive y listo; no hay instalador ni nada que desinstalar.
+
+Al abrirlo, Windows pide permiso de administrador (va declarado en el manifiesto): sin elevación no
+se puede leer el estado SMART del disco ni consultar los servicios. Y como el `.exe` no está firmado,
+SmartScreen lo va a marcar como desconocido — «Más información» → «Ejecutar de todas formas».
+
+### Qué hace la primera versión
+
+Solo **diagnóstico, de solo lectura**. «Analizar el equipo» mide en serio —tipo y salud del disco,
+RAM y presión de memoria, espacio libre, programas de inicio, tiempo de arranque, antivirus activos,
+BitLocker— y muestra el reporte separado en *lo que puedo arreglar* y *lo que necesita hardware*. Los
+botones que aplicarían cambios avisan que no están conectados en lugar de simular trabajo.
+
+```powershell
+dotnet run --project src\EasyFix.App    # desde el repo, en Windows
 ```
 
 ### La VM Windows: para qué sigue siendo imprescindible

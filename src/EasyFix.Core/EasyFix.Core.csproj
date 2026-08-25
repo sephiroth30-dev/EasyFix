@@ -29,6 +29,7 @@
          métodos (IFileTree) en vez de System.IO.Abstractions. Motivo: sin compilador disponible,
          cada dependencia extra es API que no puedo verificar. Es una desviación consciente del
          plan; revisable cuando exista la VM. -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
     <PackageReference Include="System.Management" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />

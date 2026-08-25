@@ -29,8 +29,18 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <!-- Sin trimming: recorta reflexión y rompe System.Management y el binder de configuración. -->
+
+    <!-- Sin trimming: recorta por análisis estático y rompe todo lo que usa reflexión —
+         System.Management (WMI), el binder de System.Text.Json y los generadores de MVVM.
+         El .exe pesa más, pero funciona. -->
     <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- Comprime el runtime embebido: baja el .exe casi a la mitad a cambio de unas décimas de
+         segundo en el primer arranque. Para un archivo que viaja en un pendrive, conviene. -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- El .pdb queda aparte y no se copia al pendrive: al .exe le alcanza consigo mismo. -->
+    <DebugType>portable</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

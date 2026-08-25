@@ -87,6 +87,7 @@ public partial class App : Application
         services.AddSingleton<JunctionSafeCleaner>();
         services.AddSingleton<UndoEngine>();
         services.AddSingleton<HardwareAdvisor>();
+        services.AddSingleton<SystemProbe>();
         services.AddSingleton<ServiceConditionEvaluator>();
 
         // Los IDiagnosticCheck se registran acá a medida que se implementen; DiagnosticEngine
