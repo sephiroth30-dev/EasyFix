@@ -251,8 +251,8 @@ su raíz esperada antes de borrar o copiar.
 **Borrado de temporales:** enumeración manual comprobando `FileAttributes.ReparsePoint`. Un junction
 dentro de `%TEMP%` apuntando a `Documents` convertiría la limpieza en borrado de datos del cliente.
 
-El plan completo, con las 12 fases y sus tests, está en
-`~/.claude/plans/ayudame-instalando-la-skill-snuggly-blanket.md`.
+El documento de trabajo completo —estado actual, decisiones, qué falta y en qué orden— está en
+[`docs/PLAN.md`](docs/PLAN.md).
 
 ---
 
