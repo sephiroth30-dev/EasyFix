@@ -1,0 +1,45 @@
+## .NET
+bin/
+obj/
+publish/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userprefs
+project.lock.json
+project.assets.json
+artifacts/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.sln.docstates
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+
+## Test output
+TestResults/
+[Cc]overage*/
+*.trx
+*.coverage
+
+## Secretos y config local — nunca versionar
+.env
+*.local.json
+appsettings.Development.json
+appsettings.Local.json
+
+## Salidas del spike (contienen nombres de equipo, rutas y software instalado del cliente)
+tools/spike/out/
+*-spike-*.md
+
+## Sysinternals: se descarga, no se versiona (licencia + tamaño)
+tools/autorunsc.exe
+tools/autorunsc64.exe
+
+## macOS / Windows
+.DS_Store
+Thumbs.db
+desktop.ini
