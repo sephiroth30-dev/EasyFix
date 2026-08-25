@@ -88,6 +88,102 @@ Todo esto necesita un Windows real. Está concentrado a propósito para que una 
 
 ---
 
+## Objetivo: "dejar el equipo en estado estándar"
+
+Meta declarada por el usuario: EasyFix deja el equipo **sin ningún error, como en modo estándar**. No
+es una promesa al cliente — es el objetivo de diseño de la herramienta.
+
+Traducirlo a algo construible exige partirlo en dos, porque las dos mitades tienen destinos distintos.
+
+### Mitad 1 — Deriva de configuración: SÍ se puede devolver a estándar
+
+Windows se ensucia acumulando cambios respecto de su estado de fábrica. Eso es reversible, y hay
+mecanismos oficiales para casi todo:
+
+| Qué se desvió | Cómo se vuelve a estándar |
+|---|---|
+| Archivos de sistema modificados o corruptos | `DISM /RestoreHealth` + `sfc /scannow` — restaura contra la imagen de referencia. Es *literalmente* volver a estándar. |
+| Pila de red alterada | `netsh winsock reset` + `netsh int ip reset` + `ipconfig /flushdns` |
+| Componentes de Windows Update roto | Detener servicios, renombrar `SoftwareDistribution` y `catroot2` |
+| Planes de energía manoseados | `powercfg -restoredefaultschemes` |
+| Tipos de inicio de servicios cambiados | Comparar contra la línea base de esa versión de Windows y restaurar los que difieran |
+| Asociaciones de archivo secuestradas | Restaurar las predeterminadas por extensión |
+| Store / Apps UWP rotas | `wsreset`, re-registro de paquetes |
+| Firewall y Defender con políticas raras | Restaurar directivas predeterminadas |
+| `hosts`, proxy y DNS secuestrados | Restaurar a contenido y valores por defecto |
+| GPO local con basura (equipo sin dominio) | Reset de las directivas locales |
+| Sistema de archivos con errores | `chkdsk` |
+
+Esto es un modo nuevo, distinto de "Mejorar rendimiento": **Restablecer a estado estándar**. Mejorar
+optimiza; restablecer *deshace la deriva*. Se pisan en algunas acciones pero la intención es otra, y
+el riesgo también: restablecer toca más cosas.
+
+### Mitad 2 — Daño real: NO se puede, y hay que decirlo
+
+Ninguna cantidad de software arregla esto:
+
+- **Disco fallando** (SMART, eventos WHEA, errores `disk`/`Ntfs`) → respaldar y reemplazar.
+- **RAM defectuosa** → probar y reemplazar. Es la causa #1 de varios pantallazos azules.
+- **Driver con bug** → se puede *revertir* a una versión anterior, no arreglar.
+- **Hardware con fallas reportadas por firmware** (WHEA) → reemplazo.
+- **Sobrecalentamiento** → limpieza física y pasta térmica.
+
+Acá el trabajo de EasyFix no es reparar: es **identificar y nombrar** el problema con la evidencia
+medida, para que el técnico no pierda tres horas reinstalando algo que iba a fallar igual.
+
+### La opción nuclear: el propio reset de Windows
+
+Cuando la deriva es demasiada, `systemreset` («Restablecer este PC conservando mis archivos») deja el
+equipo en estado estándar de verdad, más rápido y con más garantías que cincuenta arreglos uno por uno.
+
+**Una herramienta seria tiene que saber cuándo recomendarlo** en vez de insistir con parches. Criterios
+candidatos: `DISM /RestoreHealth` falla o no puede reparar · más de N servicios fuera de su línea base ·
+perfil corrupto sin arreglo de nivel 1 o 2 · pantallazos que persisten después de revertir drivers y
+actualizaciones. Recomendarlo con honestidad es más valioso que un botón que promete lo imposible.
+
+### Cómo se vuelve medible: la lista de verificación
+
+«Sin ningún error» no significa nada si no es falsable. Se define como una **lista concreta de
+condiciones, todas en verde**, que se vuelve a evaluar *después* de reparar y se muestra tal cual:
+
+```
+ESTADO DEL EQUIPO                                  antes    después
+Integridad de archivos de sistema (DISM/SFC)         ✗         ✓
+Sistema de archivos sin errores (chkdsk)             ✓         ✓
+Salud del disco (SMART)                              ✓         ✓
+Sin dispositivos con problema                        ✗         ✓
+Un solo antivirus activo                             ✗         ✓
+Servicios en su tipo de inicio estándar              ✗         ✓
+Pila de red en valores predeterminados               ✓         ✓
+Windows Update funcional                             ✗         ✓
+Sin errores de disco en el registro de eventos       ✓         ✓
+Sin pantallazos en los últimos 30 días               ✗         ✗   <- persiste
+Espacio libre suficiente en C:                       ✗         ✓
+Perfil de usuario sano                               ✓         ✓
+```
+
+Las que quedan en rojo se muestran **con el motivo**, y si el motivo es hardware, se dice. Un ítem que
+no se pudo evaluar aparece como «no determinado», nunca como verde: una comprobación que falló no es
+evidencia de que el equipo esté sano.
+
+Esa tabla es el entregable real de la herramienta. Es lo que se le deja al cliente, y es lo que
+convierte «te lo dejé sin errores» en algo verificable en vez de una frase de vendedor.
+
+### Fases nuevas que esto agrega
+
+| # | Entrega | Depende de |
+|---|---|---|
+| 19 | **Lista de verificación**: las ~12 condiciones como reglas puras sobre el snapshot, evaluadas antes y después | ampliar `SystemProbe` |
+| 20 | Línea base de tipos de inicio de servicios por versión de Windows, y restauración de los que difieran | 12 (handlers de deshacer) |
+| 21 | Modo **Restablecer a estado estándar**: red, Windows Update, energía, asociaciones, Store, políticas | 11, 12 |
+| 22 | **Análisis de pantallazos azules**: bugcheck del registro de eventos, WHEA, volcados, y cruce con la fecha de las actualizaciones | ampliar `SystemProbe` |
+| 23 | Recomendador del reset de Windows, con criterios explícitos | 19, 21 |
+
+El prototipo del punto 22 ya existe como script suelto: `tools/Diagnose-BlueScreen.ps1`. Es solo
+lectura y sirve para validar los contratos del Event Log antes de escribir el C#.
+
+---
+
 ## Modelo honesto de rendimiento
 Esto define qué promete la app. No se inventa un "+200%".
 
