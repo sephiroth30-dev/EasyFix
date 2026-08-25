@@ -31,6 +31,9 @@ public sealed class InMemoryFileTree : IFileTree
 
     // --- Construcción -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Declara un directorio de forma explícita, fijando sus atributos.
+    /// </summary>
     public InMemoryFileTree AddDirectory(string path, bool isReparsePoint = false)
     {
         string p = Normalize(path);
@@ -39,14 +42,7 @@ public sealed class InMemoryFileTree : IFileTree
             DateTime.UnixEpoch,
             FileAttributes.Directory | (isReparsePoint ? FileAttributes.ReparsePoint : 0));
 
-        // Los ancestros existen implícitamente, como en un filesystem real.
-        string? parent = ParentOf(p);
-        while (parent is not null && !_dirs.ContainsKey(parent))
-        {
-            _dirs[parent] = new Entry(0, DateTime.UnixEpoch, FileAttributes.Directory);
-            parent = ParentOf(parent);
-        }
-
+        EnsureAncestors(p);
         return this;
     }
 
@@ -62,13 +58,31 @@ public sealed class InMemoryFileTree : IFileTree
             lastWriteUtc ?? DateTime.UnixEpoch,
             FileAttributes.Normal | (isReparsePoint ? FileAttributes.ReparsePoint : 0));
 
-        string? parent = ParentOf(p);
-        if (parent is not null)
-        {
-            AddDirectory(parent);
-        }
-
+        EnsureAncestors(p);
         return this;
+    }
+
+    /// <summary>
+    /// Crea los directorios ancestros que falten, <b>sin tocar los que ya existen</b>.
+    /// </summary>
+    /// <remarks>
+    /// El "sin tocar" es el punto. La primera versión de este fake reasignaba la entrada del padre y
+    /// le borraba el atributo <see cref="FileAttributes.ReparsePoint"/>: declarar el junction y
+    /// después agregarle un archivo adentro lo convertía en un directorio común, y el test del
+    /// junction pasaba a probar otra cosa. Un test double que miente es peor que no tener test.
+    /// </remarks>
+    private void EnsureAncestors(string normalizedPath)
+    {
+        string? parent = ParentOf(normalizedPath);
+        while (parent is not null)
+        {
+            if (!_dirs.ContainsKey(parent))
+            {
+                _dirs[parent] = new Entry(0, DateTime.UnixEpoch, FileAttributes.Directory);
+            }
+
+            parent = ParentOf(parent);
+        }
     }
 
     // --- IFileTree --------------------------------------------------------------------------

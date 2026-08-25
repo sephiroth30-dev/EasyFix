@@ -3,6 +3,7 @@ using EasyFix.Core.Classification;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Processes;
 using EasyFix.Core.Safety;
+using EasyFix.Core.Tests.Fakes;
 using Xunit;
 
 namespace EasyFix.Core.Tests;
@@ -118,12 +119,13 @@ public sealed class WingetPackageIdTests
 
 public sealed class SafeProcessRunnerTests
 {
-    [Fact]
-    public void System32_DevuelveUnaRutaAbsoluta()
+    [WindowsOnlyFact]
+    public void System32_DevuelveUnaRutaAbsolutaBajoSystem32()
     {
         string path = SafeProcessRunner.System32("fsutil.exe");
 
         Assert.True(Path.IsPathRooted(path));
+        Assert.Contains("System32", path, StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith("fsutil.exe", path, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -201,8 +203,7 @@ public sealed class OptionsLoaderTests
         // degradar equipos con disco mecánico.
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
 
-        ServiceCandidate sysMain = Assert.Single(
-            options.Services.OfferToDisable.Where(s => s.Name == "SysMain"));
+        ServiceCandidate sysMain = Assert.Single(options.Services.OfferToDisable, s => s.Name == "SysMain");
 
         Assert.Equal("SsdAndRamAtLeast8Gb", sysMain.OnlyIf);
     }
@@ -212,8 +213,7 @@ public sealed class OptionsLoaderTests
     {
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
 
-        ServiceCandidate spooler = Assert.Single(
-            options.Services.OfferToDisable.Where(s => s.Name == "Spooler"));
+        ServiceCandidate spooler = Assert.Single(options.Services.OfferToDisable, s => s.Name == "Spooler");
 
         Assert.Equal("NoPrintersInstalled", spooler.OnlyIf);
     }
@@ -223,17 +223,53 @@ public sealed class OptionsLoaderTests
     {
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
 
-        AllowlistEntry teams = Assert.Single(
-            options.Classifier.AutoDisableAllowlist.Where(e => e.Product.Contains("Teams", StringComparison.Ordinal)));
+        AllowlistEntry teams = Assert.Single(options.Classifier.AutoDisableAllowlist, e => e.Product.Contains("Teams", StringComparison.Ordinal));
 
         Assert.True(teams.OnlyIfNotDomainJoined);
     }
 
+    /// <summary>
+    /// Verifica la lógica de expansión en cualquier sistema, usando una variable que el test define.
+    /// </summary>
+    /// <remarks>
+    /// Es el complemento cross-platform de
+    /// <see cref="ProtectedPathPrefixes_ExpandenSystemRoot_EnWindows"/>: prueba que el loader
+    /// realmente expande, sin depender de que exista <c>%SystemRoot%</c>.
+    /// </remarks>
     [Fact]
-    public void ProtectedPathPrefixes_QuedanConLasVariablesExpandidas()
+    public void ProtectedPathPrefixes_SeExpanden()
+    {
+        const string VarName = "EASYFIX_TEST_ROOT";
+        const string VarValue = "/ruta/de/prueba";
+
+        string? original = Environment.GetEnvironmentVariable(VarName);
+        Environment.SetEnvironmentVariable(VarName, VarValue);
+        try
+        {
+            EasyFixOptions options = OptionsLoader.Parse($$"""
+                { "Classifier": { "Layer1_HardBlock": {
+                    "ProtectedPathPrefixes": [ "%{{VarName}}%/System32" ] } } }
+                """);
+
+            string prefix = Assert.Single(options.Classifier.HardBlock.ProtectedPathPrefixes);
+            Assert.Equal($"{VarValue}/System32", prefix);
+            Assert.DoesNotContain("%", prefix, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(VarName, original);
+        }
+    }
+
+    /// <summary>
+    /// El <c>appsettings.json</c> real usa <c>%SystemRoot%</c>, que solo existe en Windows.
+    /// </summary>
+    [WindowsOnlyFact]
+    public void ProtectedPathPrefixes_ExpandenSystemRoot_EnWindows()
     {
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(RealAppSettingsPath()));
 
+        Assert.NotEmpty(options.Classifier.HardBlock.ProtectedPathPrefixes);
         Assert.All(options.Classifier.HardBlock.ProtectedPathPrefixes,
             p => Assert.DoesNotContain("%", p, StringComparison.Ordinal));
     }

@@ -4,23 +4,38 @@ Herramienta de técnico para Windows 10 y 11. Un `.exe` portable que llevás en 
 equipo, aplica las mejoras seguras con un click, instala el software base y repara los errores
 comunes del sistema. Todo reversible.
 
-**Estado: fase 0 + núcleo de lógica pura.** Escrito pero **sin compilar** — el equipo de desarrollo
-actual es un Mac y WPF no compila ahí. Lo primero que hay que hacer en la VM es `dotnet build`.
+**Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
+WPF— y **119 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
-| Spike de contratos de Windows (`tools/spike`) | escrito, sin correr |
-| Clasificador de 3 capas | escrito + 20 tests |
-| Journal JSONL y motor de deshacer | escrito + 19 tests |
-| Limpiador junction-safe de temporales | escrito + 11 tests |
-| Runner de procesos endurecido | escrito + 5 tests |
-| Validación de IDs de winget, `PathGuard`, parser de certificados | escrito + tests |
-| Diagnósticos (WMI), fixes, UI en WPF | **pendiente** — necesitan la VM |
+| Clasificador de 3 capas | ✅ 20 tests |
+| Journal JSONL y motor de deshacer | ✅ 25 tests (incluye ida y vuelta a disco real) |
+| Limpiador junction-safe de temporales | ✅ 15 tests, incluido uno con **un symlink real** |
+| Runner de procesos endurecido | ✅ |
+| `PathGuard`, parser de certificados, IDs de winget, loader de config | ✅ |
+| Shell de la UI en WPF (ventana, tema, DI, logging) | ✅ compila; **sin ejecutar** (necesita Windows) |
+| Spike de contratos de Windows (`tools/spike`) | escrito, **sin correr** |
+| Diagnósticos (WMI), fixes, wizard de perfil, módulo winget | **pendiente** |
 
-Desviaciones conscientes del plan, por no tener compilador: la configuración se lee con
-`System.Text.Json` en vez de `Microsoft.Extensions.Configuration`, y el acceso a archivos usa un
-puerto propio de 9 métodos (`IFileTree`) en vez de `System.IO.Abstractions`. Motivo: cada dependencia
-extra es superficie de API que no se puede verificar a ciegas. Revisable cuando exista la VM.
+### Compilar desde macOS o Linux
+
+Contrario a lo que decía una versión anterior de este README: **WPF sí compila fuera de Windows.**
+Basta `<EnableWindowsTargeting>true</EnableWindowsTargeting>` en el proyecto de la app — el SDK baja
+el reference pack de `Microsoft.WindowsDesktop.App` y el XAML se compila y valida igual.
+
+Lo que **no** se puede fuera de Windows:
+- **Ejecutar** el `.exe`.
+- Probar cualquier cosa que toque WMI, el registro, servicios o puntos de restauración.
+
+O sea: la VM Windows sigue siendo imprescindible para *probar los fixes*, pero **no** para desarrollar
+y verificar la lógica ni la UI. Casi todo `EasyFix.Core` es lógica pura y se testea en cualquier
+sistema.
+
+Desviaciones conscientes del plan: la configuración se lee con `System.Text.Json` en vez de
+`Microsoft.Extensions.Configuration`, y el acceso a archivos usa un puerto propio de 9 métodos
+(`IFileTree`) en vez de `System.IO.Abstractions`. Motivo: menos superficie de API, y `IFileTree` sin
+borrado recursivo hace que el borrado peligroso sea imposible de invocar por descuido.
 
 ---
 
@@ -100,39 +115,48 @@ rompe el equipo para el área de TI.
 
 ## Desarrollo
 
-### ⚠️ Requiere una VM con Windows
+### Compilar y testear (macOS, Linux o Windows)
 
-**WPF no compila en macOS ni Linux** — el compilador de XAML es Windows-only, no hay workaround.
+Solo hace falta el **.NET 8 SDK**. En macOS/Linux, sin `sudo`:
 
-1. **VMware Fusion Pro** (gratis; *Fusion Player* fue discontinuado por Broadcom en mayo 2024) o
-   VirtualBox 7, con **Windows 11 x64**.
-2. .NET 8 SDK dentro de la VM.
-3. Una **segunda VM "conejillo"** con Windows sucio a propósito (muchos startup, temporales,
-   bloatware) y snapshots. Es el único lugar seguro para probar los fixes destructivos.
-
-### Cómo correr el proyecto
-
-```powershell
-git clone <repo> ; cd EasyFix
-powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1   # crea el .sln, baja autorunsc, restaura y compila
-dotnet run --project src\EasyFix.App                                # pide UAC al arrancar
+```bash
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir "$HOME/.dotnet"
+export PATH="$HOME/.dotnet:$PATH"
 ```
 
-El `.exe` portable para el USB:
+```bash
+git clone <repo> && cd EasyFix
+dotnet build          # los tres proyectos, incluido el de WPF
+dotnet test           # 119 pasan, 2 se omiten fuera de Windows
+```
+
+```bash
+dotnet test --filter 'Category!=RequiresWindows'   # solo lo que corre en cualquier sistema
+dotnet test --filter 'Category!=Integration'       # solo lógica pura, sin tocar el disco
+```
+
+### Ejecutar: solo en Windows
 
 ```powershell
-dotnet publish src\EasyFix.App -c Release
+dotnet run --project src\EasyFix.App    # pide UAC al arrancar
+```
+
+El `.exe` portable para el USB (se puede *publicar* desde macOS, no ejecutar):
+
+```bash
+dotnet publish src/EasyFix.App -c Release
 # salida: un solo EasyFix.exe (~70 MB), sin runtime a instalar en el equipo del cliente
 ```
 
-### Cómo correr los tests
+### La VM Windows: para qué sigue siendo imprescindible
 
-```powershell
-dotnet test                                     # unit tests — no tocan el sistema
-dotnet test --filter Category!=RequiresVm       # subconjunto seguro
-```
+No para compilar. Para **probar los fixes**, que es lo que puede romper el equipo de un cliente:
 
-Los tests de integración necesitan la VM conejillo y el ciclo de snapshots descrito en el plan.
+1. **VMware Fusion Pro** (gratis; *Fusion Player* fue discontinuado por Broadcom en mayo 2024) o
+   VirtualBox 7, con **Windows 11 x64**.
+2. Una **segunda VM "conejillo"** con Windows sucio a propósito (muchos startup, temporales,
+   bloatware) y snapshots. Es el único lugar seguro para probar los fixes destructivos y para medir
+   el antes/después del arranque, que requiere reiniciar de verdad.
 
 ### Fase 1 — spike de contratos (hacer antes de escribir código de diagnóstico)
 

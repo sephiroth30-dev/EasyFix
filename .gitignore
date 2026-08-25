@@ -43,3 +43,6 @@ tools/autorunsc64.exe
 .DS_Store
 Thumbs.db
 desktop.ini
+
+## Solución generada localmente por dotnet new sln (versionada a partir de ahora,
+## pero scripts/bootstrap.ps1 la recrea si falta)

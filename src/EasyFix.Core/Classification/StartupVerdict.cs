@@ -23,7 +23,7 @@ public enum ClassificationTier
 /// <param name="Reason">Por qué, en español, para mostrárselo al cliente.</param>
 /// <param name="WhatYouLose">Qué deja de funcionar si se desactiva. Solo para <see cref="ClassificationTier.AutoSafe"/> y NeedsApproval.</param>
 /// <param name="PossibleMalware">Binario sin firma válida: se marca en rojo en la UI.</param>
-public sealed record Classification(
+public sealed record StartupVerdict(
     ClassificationTier Tier,
     string Reason,
     string? WhatYouLose = null,

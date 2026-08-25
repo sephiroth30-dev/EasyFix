@@ -64,7 +64,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void ProductoDeSeguridadRegistrado_QuedaBloqueado()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Windows Defender", "Microsoft Corporation", securityProduct: true),
             HomePc);
 
@@ -77,7 +77,7 @@ public sealed class StartupClassifierTests
     {
         // Un producto que está en la lista blanca Y registrado como seguridad tiene que quedar
         // bloqueado: la Capa 1 se evalúa primero y gana.
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Spotify", SpotifyPublisher, securityProduct: true),
             HomePc);
 
@@ -87,7 +87,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void PublisherProtegido_QuedaBloqueado()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Panel de control NVIDIA", "NVIDIA Corporation"),
             HomePc);
 
@@ -97,7 +97,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void EjecutableEnSystem32_QuedaBloqueado()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Algo", "Editor Cualquiera", path: @"C:\Windows\System32\algo.exe"),
             HomePc);
 
@@ -109,7 +109,7 @@ public sealed class StartupClassifierTests
     {
         // C:\Windows\System32Evil NO está dentro de C:\Windows\System32. Un StartsWith pelado
         // daría un falso positivo acá — y en el sentido contrario, protegería a un malware.
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Sospechoso", "Editor Cualquiera", path: @"C:\Windows\System32Evil\x.exe"),
             HomePc);
 
@@ -119,7 +119,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void ServicioConDependientesEnEjecucion_QuedaBloqueado()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("RpcSs", "Editor Cualquiera", dependents: new[] { "DcomLaunch", "LSM" }),
             HomePc);
 
@@ -130,7 +130,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void ConDriverAsociado_QuedaBloqueado()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Servicio de audio", "Editor Cualquiera", driver: true),
             HomePc);
 
@@ -144,7 +144,7 @@ public sealed class StartupClassifierTests
     {
         // Un archivo llamado "MyVPN" sin firma válida. Con match por nombre (*VPN*) quedaría
         // protegido; con verificación por certificado cae en Capa 3 y se marca como posible malware.
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("MyVPN Service", publisher: null, signatureValid: false, path: @"C:\Users\bob\AppData\Roaming\myvpn.exe"),
             HomePc);
 
@@ -157,7 +157,7 @@ public sealed class StartupClassifierTests
     {
         // Cualquiera puede escribir "Microsoft Windows" en los metadatos de un binario sin firmar.
         // Solo un certificado que valida cuenta como evidencia de identidad.
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("svchost", MicrosoftPublisher, signatureValid: false, path: @"C:\Users\bob\svchost.exe"),
             HomePc);
 
@@ -169,7 +169,7 @@ public sealed class StartupClassifierTests
     public void VpnRealQueNoContieneVpnEnElNombre_QuedaBloqueadaPorSuCertificado()
     {
         // El caso inverso: "Pulse Secure" no matchea el patrón *VPN* pero sí su certificado.
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Pulse Secure Service", "Pulse Secure, LLC"),
             HomePc);
 
@@ -181,7 +181,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void EnListaBlancaConFirmaValida_SeDesactivaSolo()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Spotify", SpotifyPublisher, product: "Spotify"),
             HomePc);
 
@@ -193,7 +193,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void NombreCoincidePeroLaFirmaNoValida_NoLlegaACapa2()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Spotify", SpotifyPublisher, signatureValid: false, product: "Spotify"),
             HomePc);
 
@@ -204,7 +204,7 @@ public sealed class StartupClassifierTests
     public void ProductoCorrectoPeroOtroPublisher_NoLlegaACapa2()
     {
         // Un ejecutable firmado por otra empresa que se hace llamar "Spotify".
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Spotify", "Fake Software Ltd", product: "Spotify"),
             HomePc);
 
@@ -225,7 +225,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void PublisherComparaSinDistinguirMayusculas()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Spotify", "spotify ab", product: "Spotify"),
             HomePc);
 
@@ -237,7 +237,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void DesconocidoConFirmaValida_PideAprobacion()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Agente de gestión de la empresa", "Some Corp S.A."),
             HomePc);
 
@@ -249,7 +249,7 @@ public sealed class StartupClassifierTests
     [Fact]
     public void SinRutaDeEjecutable_NoRevienta_YPideAprobacion()
     {
-        Classification result = BuildClassifier().Classify(
+        StartupVerdict result = BuildClassifier().Classify(
             Candidate("Entrada huérfana", "Some Corp S.A.", path: null),
             HomePc);
 
@@ -269,9 +269,9 @@ public sealed class StartupClassifierTests
         var results = BuildClassifier().ClassifyAll(input, HomePc);
 
         Assert.Equal(3, results.Count);
-        Assert.Equal(ClassificationTier.AutoSafe, results[0].Classification.Tier);
-        Assert.Equal(ClassificationTier.HardBlocked, results[1].Classification.Tier);
-        Assert.Equal(ClassificationTier.NeedsApproval, results[2].Classification.Tier);
+        Assert.Equal(ClassificationTier.AutoSafe, results[0].Verdict.Tier);
+        Assert.Equal(ClassificationTier.HardBlocked, results[1].Verdict.Tier);
+        Assert.Equal(ClassificationTier.NeedsApproval, results[2].Verdict.Tier);
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public sealed class StartupClassifierTests
         // Una configuración corrupta o vacía tiene que fallar CERRADO: nada en automático.
         var classifier = new StartupClassifier(new ClassifierOptions());
 
-        Classification result = classifier.Classify(
+        StartupVerdict result = classifier.Classify(
             Candidate("Spotify", SpotifyPublisher, product: "Spotify"),
             HomePc);
 

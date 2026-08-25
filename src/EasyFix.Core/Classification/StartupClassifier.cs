@@ -33,7 +33,7 @@ public sealed class StartupClassifier
     /// Si ninguna aplica, el resultado es <see cref="ClassificationTier.NeedsApproval"/>:
     /// desconocido = pedir permiso.
     /// </summary>
-    public Classification Classify(StartupCandidate candidate, SystemContext context)
+    public StartupVerdict Classify(StartupCandidate candidate, SystemContext context)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(context);
@@ -43,14 +43,14 @@ public sealed class StartupClassifier
 
         if (candidate.IsRegisteredSecurityProduct)
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.HardBlocked,
                 "Es un producto de seguridad registrado en Windows. Desactivarlo dejaría el equipo sin protección.");
         }
 
         if (IsProtectedPublisher(candidate.Signature))
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.HardBlocked,
                 $"Está firmado por {candidate.Signature.PublisherOrganization}, un publisher protegido " +
                 "(componente de Windows, driver, VPN, seguridad o respaldo).");
@@ -58,7 +58,7 @@ public sealed class StartupClassifier
 
         if (IsUnderProtectedPath(candidate.ExecutablePath))
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.HardBlocked,
                 "El ejecutable está en una carpeta del sistema. Es un componente de Windows.");
         }
@@ -67,14 +67,14 @@ public sealed class StartupClassifier
         {
             string list = string.Join(", ", candidate.Dependents.Take(3));
             string more = candidate.Dependents.Count > 3 ? $" y {candidate.Dependents.Count - 3} más" : string.Empty;
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.HardBlocked,
                 $"Hay servicios en ejecución que dependen de este: {list}{more}. Detenerlo los rompería.");
         }
 
         if (_options.HardBlock.BlockIfDriverAssociated && candidate.HasAssociatedDriver)
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.HardBlocked,
                 "Tiene un driver asociado (audio, video, chipset o red). Desactivarlo puede dejar hardware sin funcionar.");
         }
@@ -85,7 +85,7 @@ public sealed class StartupClassifier
 
         if (!candidate.Signature.IsValid)
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.NeedsApproval,
                 "El ejecutable no tiene una firma digital válida, así que no se puede verificar quién lo hizo.",
                 WhatYouLose: "Desconocido — revisá qué es antes de desactivarlo.",
@@ -97,7 +97,7 @@ public sealed class StartupClassifier
         AllowlistEntry? match = FindAllowlistMatch(candidate, context);
         if (match is not null)
         {
-            return new Classification(
+            return new StartupVerdict(
                 ClassificationTier.AutoSafe,
                 $"{match.Product} de {match.Publisher}: no hace falta que arranque con Windows.",
                 WhatYouLose: match.Loses);
@@ -105,7 +105,7 @@ public sealed class StartupClassifier
 
         // ---- Capa 3: default -----------------------------------------------------------------
 
-        return new Classification(
+        return new StartupVerdict(
             ClassificationTier.NeedsApproval,
             "No está en la lista de programas que se pueden desactivar sin riesgo, así que hace falta tu confirmación.",
             WhatYouLose: "Podría ser algo que el equipo necesite.");
@@ -114,7 +114,7 @@ public sealed class StartupClassifier
     /// <summary>
     /// Clasifica un lote conservando el orden de entrada.
     /// </summary>
-    public IReadOnlyList<(StartupCandidate Candidate, Classification Classification)> ClassifyAll(
+    public IReadOnlyList<(StartupCandidate Candidate, StartupVerdict Verdict)> ClassifyAll(
         IEnumerable<StartupCandidate> candidates,
         SystemContext context)
     {

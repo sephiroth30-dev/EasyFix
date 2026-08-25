@@ -17,6 +17,13 @@
     <RootNamespace>EasyFix.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
+    <!-- Permite COMPILAR el proyecto WPF desde macOS/Linux: el SDK baja el reference pack de
+         Microsoft.WindowsDesktop.App en vez de exigir un Windows. El XAML se compila y se valida
+         igual. Lo que NO se puede es ejecutar el .exe fuera de Windows.
+         Con esto el desarrollo de la UI no queda bloqueado esperando una VM; la VM sigue siendo
+         imprescindible para probar los fixes, que es otra cosa. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
     <!-- .exe único y portable para el USB: no hay que instalar runtime en el equipo del cliente. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -33,10 +40,11 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
     <PackageReference Include="Serilog" Version="4.1.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <!-- Puente Serilog -> ILogger<T>: Core depende solo de la abstracción, no de Serilog. -->
+    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
