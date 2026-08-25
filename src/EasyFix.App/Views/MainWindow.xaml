@@ -233,12 +233,34 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
-                    <Button Content="Volver" Command="{Binding BackCommand}"
-                            Style="{StaticResource GhostButton}" Width="110" />
-                    <Button Content="Mejorar rendimiento" Command="{Binding ApplyFixesCommand}"
-                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
-                            IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
+                <StackPanel Grid.Row="2" Margin="0,14,0,0">
+                    <!-- La confirmación de BitLocker solo aparece si el equipo lo tiene activo.
+                         Sin marcarla, las reparaciones que tocan arranque o disco quedan
+                         bloqueadas: es la única consecuencia irreversible que puede causar la
+                         herramienta. -->
+                    <Border Style="{StaticResource StatusPanel}" Margin="0,0,0,10"
+                            BorderBrush="{StaticResource DangerBrush}"
+                            Visibility="{Binding BitLockerActive, Converter={StaticResource BoolVis}}">
+                        <StackPanel>
+                            <TextBlock Text="Este equipo tiene BitLocker" FontSize="12.5"
+                                       FontWeight="SemiBold" Foreground="{StaticResource DangerBrush}" />
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="11" Margin="0,4,0,8"
+                                       Text="Reparar el disco o la red puede hacer que Windows pida la clave de recuperación de 48 dígitos al reiniciar. Sin esa clave, el cliente queda fuera de su propio equipo." />
+                            <CheckBox Style="{StaticResource LabeledCheckBox}"
+                                      IsChecked="{Binding BitLockerKeyConfirmed, Mode=TwoWay}">
+                                <TextBlock Text="Confirmo que la clave de recuperación está a mano"
+                                           TextWrapping="Wrap" />
+                            </CheckBox>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Volver" Command="{Binding BackCommand}"
+                                Style="{StaticResource GhostButton}" Width="100" />
+                        <Button Content="Reparar el equipo" Command="{Binding RepairCommand}"
+                                Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 
@@ -287,6 +309,62 @@
                     <Button Content="Instalar los marcados" Command="{Binding RunInstallCommand}"
                             Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
                 </StackPanel>
+            </Grid>
+
+            <!-- ===== 5. Reparando ===== -->
+            <StackPanel Grid.Row="1" Margin="20,4,20,20" VerticalAlignment="Top"
+                        Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Repairing}">
+                <TextBlock Text="Reparando el equipo…" Style="{StaticResource TitleText}"
+                           FontSize="15" Margin="0,4,0,4" />
+                <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource MutedText}"
+                           FontSize="12.5" Margin="0,0,0,16" />
+
+                <ProgressBar IsIndeterminate="True" Height="3" Background="{StaticResource BorderBrush}"
+                             Foreground="{StaticResource AccentBrush}" BorderThickness="0" />
+
+                <Border Style="{StaticResource StatusPanel}">
+                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
+                               Text="Se creó un punto de restauración antes del primer cambio. Cada acción queda registrada antes de aplicarse, así que se puede deshacer incluso si esto se interrumpe. Reparar los archivos del sistema puede tardar 40 minutos." />
+                </Border>
+
+                <Button Content="Cancelar" Command="{Binding CancelCommand}"
+                        Style="{StaticResource GhostButton}" Margin="0,16,0,0" />
+            </StackPanel>
+
+            <!-- ===== 6. Resultado de la reparación ===== -->
+            <Grid Grid.Row="1" Margin="20,4,20,20"
+                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=RepairResult}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Resultado de la reparación"
+                           Style="{StaticResource TitleText}" FontSize="15" Margin="0,4,0,10" />
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding RepairRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}" />
+
+                        <Border Style="{StaticResource StatusPanel}"
+                                Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
+                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
+                                       FontSize="11.5" />
+                        </Border>
+
+                        <Border Style="{StaticResource StatusPanel}"
+                                BorderBrush="{StaticResource WarningBrush}"
+                                Visibility="{Binding RebootRequired, Converter={StaticResource BoolVis}}">
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
+                                       Text="Hay cambios que necesitan reinicio para tener efecto. Reiniciá el equipo y volvé a analizar: el tiempo de arranque se compara contra el valor de antes." />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Button Grid.Row="2" Content="Volver al inicio" Command="{Binding BackCommand}"
+                        Style="{StaticResource GhostButton}" Margin="0,14,0,0" />
             </Grid>
 
         </Grid>

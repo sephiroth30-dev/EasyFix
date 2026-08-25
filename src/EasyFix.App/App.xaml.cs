@@ -93,6 +93,21 @@ public partial class App : Application
         services.AddSingleton<WingetService>();
         services.AddSingleton<ServiceConditionEvaluator>();
 
+        // Reparación. RestorePointService y BitLockerService son las piezas que hacen reversible a
+        // la herramienta: FixRunner aborta si el punto de restauración no se pudo verificar.
+        services.AddSingleton<IRestorePointService, RestorePointService>();
+        services.AddSingleton<IBitLockerService, BitLockerService>();
+        services.AddSingleton<FixRunner>();
+
+        // El ORDEN importa: se aplican en este orden. Primero lo que repara, después lo que mide,
+        // y al final lo que puede requerir revertir una actualización.
+        services.AddSingleton<IFix, SystemFileRepairFix>();
+        services.AddSingleton<IFix, DiskCheckFix>();
+        services.AddSingleton<IFix, WindowsUpdateResetFix>();
+        services.AddSingleton<IFix, NetworkStackResetFix>();
+        services.AddSingleton<IFix, ScheduleMemoryTestFix>();
+        services.AddSingleton<IFix, RemoveCorrelatedUpdateFix>();
+
         // Los IDiagnosticCheck se registran acá a medida que se implementen; DiagnosticEngine
         // recibe la colección, que hoy está vacía a propósito.
         services.AddSingleton<DiagnosticEngine>();

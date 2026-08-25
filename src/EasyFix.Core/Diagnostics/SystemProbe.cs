@@ -70,10 +70,12 @@ public sealed record MachineIdentity
 /// Sondas que no se pudieron leer, con el motivo. Se muestran como "no determinado": una sonda que
 /// falló no es evidencia de que el equipo esté sano.
 /// </param>
+/// <param name="Crash">Datos de inestabilidad: pantallazos, WHEA, apagones, actualizaciones.</param>
 public sealed record ProbeResult(
     SystemSnapshot Snapshot,
     MachineIdentity Identity,
-    IReadOnlyList<CheckFailure> Failures);
+    IReadOnlyList<CheckFailure> Failures,
+    CrashData Crash);
 
 /// <summary>
 /// La única clase que habla con Windows. Lee WMI, el registro y el Event Log; no modifica nada.
@@ -149,6 +151,7 @@ public sealed class SystemProbe
             ("bitlocker", "Estado de BitLocker", ProbeBitLocker),
             ("printers", "Impresoras", ProbePrinters),
             ("bluetooth", "Bluetooth", ProbeBluetooth),
+            ("crash", "Pantallazos azules y estabilidad", ProbeCrashData),
         };
 
         using var gate = new SemaphoreSlim(6);
@@ -180,7 +183,8 @@ public sealed class SystemProbe
         return new ProbeResult(
             snapshot,
             _identity,
-            failures.OrderBy(f => f.CheckId, StringComparer.Ordinal).ToList());
+            failures.OrderBy(f => f.CheckId, StringComparer.Ordinal).ToList(),
+            _crash);
     }
 
     private async Task<Func<SystemSnapshot, SystemSnapshot>?> RunProbeAsync(
@@ -237,6 +241,15 @@ public sealed class SystemProbe
     /// <c>Task.WhenAll</c>: no hay carrera.
     /// </summary>
     private volatile MachineIdentity _identity = new();
+
+    /// <summary>
+    /// Los datos de inestabilidad no caben en <see cref="SystemSnapshot"/>. Misma mecánica que
+    /// <see cref="_identity"/>: se escribe desde el hilo de su sonda y se lee tras <c>Task.WhenAll</c>.
+    /// </summary>
+    private volatile CrashData _crash = CrashData.Empty;
+
+    /// <summary>Días de historial que se analizan para los pantallazos.</summary>
+    public int CrashWindowDays { get; init; } = 60;
 
     private Func<SystemSnapshot, SystemSnapshot> ProbeOperatingSystem()
     {
@@ -627,6 +640,212 @@ public sealed class SystemProbe
         }
 
         return s => s with { HasBluetoothAdapter = any };
+    }
+
+    /// <summary>
+    /// Lee todo lo que indica inestabilidad: pantallazos, errores de hardware reportados por el
+    /// firmware, apagones sucios, errores de disco, volcados y actualizaciones recientes.
+    /// </summary>
+    /// <remarks>
+    /// Cada bloque va en su propio try: en un equipo que se cae, es habitual que algún registro esté
+    /// corrupto o vacío. Que falte uno no puede impedir leer los demás.
+    /// </remarks>
+    private Func<SystemSnapshot, SystemSnapshot> ProbeCrashData()
+    {
+        DateTime since = DateTime.Now.AddDays(-CrashWindowDays);
+
+        var crashes = new List<CrashEvent>();
+        int whea = 0, shutdowns = 0, diskErrors = 0, minidumps = 0;
+        var updates = new List<InstalledUpdate>();
+        var problemDevices = new List<string>();
+
+        // --- Pantallazos: evento 1001 de WER-SystemErrorReporting trae el bugcheck en el mensaje ---
+        try
+        {
+            var query = new EventLogQuery(
+                "System", PathType.LogName, "*[System[(EventID=1001)]]") { ReverseDirection = true };
+
+            using var reader = new EventLogReader(query);
+            int read = 0;
+
+            while (read < 200)
+            {
+                using EventRecord? record = reader.ReadEvent();
+                if (record is null) { break; }
+
+                read++;
+                if (record.TimeCreated is not DateTime when || when < since) { continue; }
+
+                // Solo los de bugcheck: el 1001 lo usan varios proveedores.
+                string? provider = record.ProviderName;
+                if (provider is not null &&
+                    !provider.Contains("SystemErrorReporting", StringComparison.OrdinalIgnoreCase) &&
+                    !provider.Contains("BugCheck", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                crashes.Add(new CrashEvent(new DateTimeOffset(when), ExtractBugCheckCode(record)));
+            }
+        }
+        catch (Exception ex) when (ex is EventLogException or UnauthorizedAccessException)
+        {
+            // Sin acceso al registro de eventos no hay análisis de pantallazos, pero el resto sigue.
+        }
+
+        whea = CountEvents("Microsoft-Windows-WHEA-Logger", null, since);
+        shutdowns = CountEvents("Microsoft-Windows-Kernel-Power", 41, since);
+
+        foreach (string provider in new[] { "disk", "Ntfs", "volmgr" })
+        {
+            diskErrors += CountEvents(provider, null, since, onlyErrors: true);
+        }
+
+        // --- Volcados de memoria ---
+        try
+        {
+            string minidumpDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Minidump");
+
+            if (Directory.Exists(minidumpDir))
+            {
+                minidumps = Directory.EnumerateFiles(minidumpDir, "*.dmp").Count();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        // --- Actualizaciones instaladas, para el cruce de fechas ---
+        try
+        {
+            foreach (ManagementObject hotfix in Query(
+                "SELECT HotFixID, InstalledOn, Description FROM Win32_QuickFixEngineering"))
+            {
+                string? id = Text(hotfix, "HotFixID");
+                string? installedOn = Text(hotfix, "InstalledOn");
+
+                if (id is null || installedOn is null) { continue; }
+
+                // InstalledOn viene como texto y su formato depende de la configuración regional.
+                if (!DateTime.TryParse(installedOn, CultureInfo.CurrentCulture,
+                        DateTimeStyles.None, out DateTime when) &&
+                    !DateTime.TryParse(installedOn, CultureInfo.InvariantCulture,
+                        DateTimeStyles.None, out when))
+                {
+                    continue;
+                }
+
+                if (when >= since)
+                {
+                    updates.Add(new InstalledUpdate(id, new DateTimeOffset(when), Text(hotfix, "Description")));
+                }
+            }
+        }
+        catch (ManagementException)
+        {
+        }
+
+        // --- Dispositivos con driver roto o ausente ---
+        try
+        {
+            foreach (ManagementObject device in Query(
+                "SELECT Name FROM Win32_PnPEntity WHERE ConfigManagerErrorCode <> 0"))
+            {
+                if (Text(device, "Name") is { } name)
+                {
+                    problemDevices.Add(name);
+                }
+            }
+        }
+        catch (ManagementException)
+        {
+        }
+
+        _crash = new CrashData(
+            crashes.OrderByDescending(c => c.When).ToList(),
+            minidumps,
+            whea,
+            shutdowns,
+            diskErrors,
+            updates.OrderByDescending(u => u.InstalledOn).ToList(),
+            problemDevices,
+            CrashWindowDays);
+
+        // Los pantallazos no modifican el snapshot: viajan en ProbeResult.Crash.
+        return s => s;
+    }
+
+    /// <summary>
+    /// Extrae el código de parada del mensaje del evento. El texto está localizado, así que se busca
+    /// el patrón hexadecimal en vez de una frase.
+    /// </summary>
+    private static string? ExtractBugCheckCode(EventRecord record)
+    {
+        string? message;
+        try
+        {
+            message = record.FormatDescription();
+        }
+        catch (EventLogException)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(message))
+        {
+            return null;
+        }
+
+        System.Text.RegularExpressions.Match match =
+            System.Text.RegularExpressions.Regex.Match(
+                message,
+                @"0x[0-9a-fA-F]{8}",
+                System.Text.RegularExpressions.RegexOptions.None,
+                TimeSpan.FromSeconds(2));
+
+        return match.Success ? match.Value : null;
+    }
+
+    /// <summary>Cuenta eventos de un proveedor desde una fecha. Devuelve 0 si el registro no existe.</summary>
+    private static int CountEvents(string providerName, int? eventId, DateTime since, bool onlyErrors = false)
+    {
+        try
+        {
+            string filter = $"*[System[Provider[@Name='{providerName}']";
+            if (eventId is int id) { filter += $" and (EventID={id})"; }
+            if (onlyErrors) { filter += " and (Level=1 or Level=2)"; }
+            filter += "]]";
+
+            var query = new EventLogQuery("System", PathType.LogName, filter) { ReverseDirection = true };
+            using var reader = new EventLogReader(query);
+
+            int count = 0;
+            int inspected = 0;
+
+            while (inspected < 500)
+            {
+                using EventRecord? record = reader.ReadEvent();
+                if (record is null) { break; }
+
+                inspected++;
+                if (record.TimeCreated is DateTime when && when >= since)
+                {
+                    count++;
+                }
+                else if (record.TimeCreated is not null)
+                {
+                    // Van del más nuevo al más viejo: al pasar la ventana no hace falta seguir.
+                    break;
+                }
+            }
+
+            return count;
+        }
+        catch (Exception ex) when (ex is EventLogException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
     }
 
     // ---- Helpers de lectura -----------------------------------------------------------------

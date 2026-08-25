@@ -203,6 +203,57 @@
         </Setter>
     </Style>
 
+    <!--
+        Casilla CON etiqueta. La de arriba solo dibuja el cuadrito, porque en la lista de programas
+        el texto lo pone la plantilla de la fila. Acá hace falta que la casilla traiga su propio
+        texto y que todo el conjunto sea clickeable.
+    -->
+    <Style x:Key="LabeledCheckBox" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <!-- Fondo transparente en el Grid para que el click funcione en toda la fila. -->
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border x:Name="Box" Width="16" Height="16" CornerRadius="3"
+                                VerticalAlignment="Top" Margin="0,1,0,0"
+                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                Background="Transparent" SnapsToDevicePixels="True">
+                            <Path x:Name="Tick" Visibility="Collapsed"
+                                  Data="M 2,6 L 5.5,9.5 L 11,3"
+                                  Stroke="{StaticResource BackgroundBrush}" StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                        </Border>
+
+                        <!-- El Foreground llega por herencia de propiedades desde el CheckBox.
+                             El ajuste de línea lo pone quien usa el estilo, envolviendo el
+                             contenido en un TextBlock: TextWrapping no es heredable. -->
+                        <ContentPresenter Grid.Column="1" Margin="9,0,0,0"
+                                          VerticalAlignment="Center" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Botón de la barra de título: minimizar y cerrar. -->
     <Style x:Key="ChromeButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />

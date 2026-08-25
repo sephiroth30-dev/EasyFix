@@ -5,7 +5,7 @@ equipo, aplica las mejoras seguras con un click, instala el software base y repa
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **210 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **277 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
@@ -22,7 +22,11 @@ WPF— y **210 tests pasan, 2 se omiten** (los que dependen de Windows).
 | `SystemProbe` — la capa de WMI, registro y Event Log | ⚠️ escrita, **sin ejecutar ni testear** |
 | Spike de contratos de Windows (`tools/spike`) | escrito, **sin correr** |
 | Módulo winget: instalar programas | ✅ 17 tests; el localizador de `winget.exe` sin ejecutar |
-| Los fixes, los handlers de deshacer, el wizard de perfil | **pendiente** |
+| Análisis de pantallazos azules: bugcheck, WHEA, cruce con actualizaciones | ✅ 47 tests |
+| `FixRunner` con las cuatro compuertas de seguridad | ✅ 21 tests |
+| Reparaciones: DISM/SFC, chkdsk, red, Windows Update, prueba de memoria, quitar actualización | ⚠️ escritas, **sin ejecutar** |
+| `RestorePointService`, `BitLockerService` | ⚠️ escritos, **sin ejecutar** |
+| Los handlers de deshacer, el wizard de perfil | **pendiente** |
 
 `SystemProbe` es la única pieza no verificada, y es a propósito: concentra todas las llamadas a
 Windows en un archivo, así que correr el `.exe` en un equipo real la valida entera de una vez. Lo que
@@ -138,7 +142,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 210 pasan, 2 se omiten fuera de Windows
+dotnet test           # 277 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash
