@@ -8,6 +8,7 @@ namespace EasyFix.Core.Configuration;
 /// </summary>
 public sealed record EasyFixOptions
 {
+    public BrandingOptions Branding { get; init; } = new();
     public ThresholdOptions Thresholds { get; init; } = new();
     public ClassifierOptions Classifier { get; init; } = new();
     public BloatwareOptions Bloatware { get; init; } = new();
@@ -123,4 +124,54 @@ public sealed record WingetPackage
     public bool IsDefault { get; init; }
 
     public string? Note { get; init; }
+
+    /// <summary>
+    /// Descarga desde el origen oficial, para lo que no está en winget.
+    /// </summary>
+    /// <remarks>
+    /// Cuando está presente se usa esta vía y no winget. Hace falta porque el catálogo de winget
+    /// cambia: RustDesk fue removido en 2026 por un falso positivo de antivirus, y su ID dejó de
+    /// resolver de un día para el otro.
+    /// </remarks>
+    public DirectDownload? Direct { get; init; }
+}
+
+/// <param name="Url">URL fija del instalador. Se ignora si hay <see cref="GitHubRepository"/>.</param>
+/// <param name="GitHubRepository">
+/// <c>owner/repo</c>. Se consulta la API de releases y se toma el más reciente, así que no queda
+/// ninguna versión clavada que envejezca.
+/// </param>
+/// <param name="AssetPattern">Fragmento que debe contener el nombre del asset: <c>x86_64.exe</c>.</param>
+/// <param name="SilentArgs">Argumentos para instalar sin interacción.</param>
+public sealed record DirectDownload
+{
+    public string? Url { get; init; }
+
+    [JsonPropertyName("githubRepository")]
+    public string? GitHubRepository { get; init; }
+
+    public string? AssetPattern { get; init; }
+
+    public IReadOnlyList<string>? SilentArgs { get; init; }
+}
+
+/// <summary>Marca del técnico. Aparece en la ventana, en el informe y en el journal.</summary>
+public sealed record BrandingOptions
+{
+    public string ProductName { get; init; } = "EasyFix";
+
+    /// <summary>Nombre del técnico. Vacío = no se muestra ninguna atribución.</summary>
+    public string TechnicianName { get; init; } = string.Empty;
+
+    /// <summary>Contacto opcional para el pie del informe que se le deja al cliente.</summary>
+    public string? Contact { get; init; }
+
+    /// <summary>"EasyFix — por Andrés Hernández", o solo "EasyFix" si no hay nombre.</summary>
+    public string WindowTitle => string.IsNullOrWhiteSpace(TechnicianName)
+        ? ProductName
+        : $"{ProductName} — por {TechnicianName}";
+
+    public string? Attribution => string.IsNullOrWhiteSpace(TechnicianName)
+        ? null
+        : $"por {TechnicianName}";
 }

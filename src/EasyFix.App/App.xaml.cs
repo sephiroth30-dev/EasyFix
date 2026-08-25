@@ -80,6 +80,7 @@ public partial class App : Application
         services.AddSingleton(LoadOptions());
         services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Thresholds);
         services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Classifier);
+        services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Branding);
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IFileTree, PhysicalFileTree>();
@@ -90,6 +91,8 @@ public partial class App : Application
         services.AddSingleton<HardwareAdvisor>();
         services.AddSingleton<SystemProbe>();
         services.AddSingleton<IWingetLocator, WingetLocator>();
+        services.AddSingleton<IFileDownloader, HttpFileDownloader>();
+        services.AddSingleton<DirectDownloadInstaller>();
         services.AddSingleton<WingetService>();
         services.AddSingleton<ServiceConditionEvaluator>();
 

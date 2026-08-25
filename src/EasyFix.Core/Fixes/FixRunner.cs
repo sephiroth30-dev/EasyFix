@@ -33,7 +33,12 @@ public sealed record FixReport(
 
 /// <param name="Aborted">La corrida se abortó antes de tocar nada.</param>
 /// <param name="AbortReason">Por qué.</param>
-/// <param name="RestorePointSequence">Secuencia del punto de restauración creado.</param>
+/// <param name="RestorePointSequence">
+/// Secuencia del punto de restauración creado. <c>null</c> si se corrió sin red de seguridad.
+/// </param>
+/// <param name="RanWithoutRestorePoint">
+/// <c>true</c> si se aplicaron cambios SIN punto de restauración, por decisión explícita del técnico.
+/// </param>
 /// <param name="Results">Un resultado por fix considerado.</param>
 /// <param name="RebootRequired">Quedaron cambios que necesitan reinicio.</param>
 public sealed record RunResult(
@@ -41,7 +46,8 @@ public sealed record RunResult(
     string? AbortReason,
     long? RestorePointSequence,
     IReadOnlyList<FixReport> Results,
-    bool RebootRequired)
+    bool RebootRequired,
+    bool RanWithoutRestorePoint = false)
 {
     public IEnumerable<FixReport> Applied =>
         Results.Where(r => r.Outcome?.Status is FixStatus.Applied or FixStatus.AppliedNeedsReboot);
@@ -106,6 +112,12 @@ public sealed class FixRunner
     /// <param name="crash">Análisis de pantallazos, si hubo.</param>
     /// <param name="journal">Journal ya abierto. Cada cambio se registra antes de aplicarse.</param>
     /// <param name="bitLockerKeyConfirmed">El técnico confirmó tener la clave de recuperación.</param>
+    /// <param name="allowWithoutRestorePoint">
+    /// Permite aplicar cambios aunque no se haya podido crear el punto de restauración. Es una
+    /// decisión explícita del técnico, nunca el comportamiento por defecto: en muchos equipos
+    /// Restaurar sistema viene deshabilitado de fábrica y bloquear todo dejaría la herramienta
+    /// inservible. Queda registrado en el journal, y el reporte lo dice.
+    /// </param>
     /// <param name="log">Progreso línea por línea.</param>
     public async Task<RunResult> RunAsync(
         IReadOnlyList<IFix> fixes,
@@ -113,6 +125,7 @@ public sealed class FixRunner
         CrashAnalysis? crash,
         RunJournal journal,
         bool bitLockerKeyConfirmed,
+        bool allowWithoutRestorePoint = false,
         IProgress<string>? log = null,
         CancellationToken ct = default)
     {
@@ -155,19 +168,48 @@ public sealed class FixRunner
             sequence = null;
         }
 
+        bool withoutRestorePoint = false;
+
         if (sequence is null)
         {
-            const string Reason =
-                "No se pudo crear un punto de restauración, así que no se aplicó ningún cambio. " +
-                "Suele ser porque Restaurar sistema está deshabilitado, o porque no hay espacio " +
-                "libre en C:. Habilitalo y volvé a intentar.";
+            if (!allowWithoutRestorePoint)
+            {
+                const string Reason =
+                    "No se pudo crear un punto de restauración, así que no se aplicó ningún cambio. " +
+                    "Suele ser porque Restaurar sistema está deshabilitado, o porque no hay espacio " +
+                    "libre en C:. Se puede continuar sin punto de restauración marcando la casilla " +
+                    "correspondiente, asumiendo que no habrá vuelta atrás automática.";
 
-            _logger.LogWarning("Corrida abortada: sin punto de restauración.");
-            journal.SetState(RunState.Aborted);
-            return Abort(Reason);
+                _logger.LogWarning("Corrida abortada: sin punto de restauración.");
+                journal.SetState(RunState.Aborted);
+                return Abort(Reason);
+            }
+
+            // Decisión explícita del técnico. Se registra bien visible: el journal es lo que queda
+            // como constancia de que se trabajó sin red de seguridad.
+            withoutRestorePoint = true;
+
+            _logger.LogWarning(
+                "Se continúa SIN punto de restauración por decisión explícita del técnico.");
+
+            journal.Append(new JournalAction
+            {
+                FixId = "restorepoint.skipped",
+                Target = "Restaurar sistema",
+                Reversible = false,
+                Note = "No se pudo crear el punto de restauración y el técnico eligió continuar. " +
+                       "Los cambios de esta corrida se pueden deshacer con «Deshacer todo» usando " +
+                       "este registro, pero no hay punto de restauración del sistema como respaldo.",
+            });
+
+            progress.Report(
+                "Sin punto de restauración. Cada cambio queda registrado igual, así que «Deshacer " +
+                "todo» sigue funcionando — pero no hay respaldo del sistema completo.");
         }
-
-        progress.Report($"Punto de restauración creado (secuencia {sequence}).");
+        else
+        {
+            progress.Report($"Punto de restauración creado (secuencia {sequence}).");
+        }
 
         // ---- Compuerta 3: BitLocker ---------------------------------------------------------
         bool bootFixesAllowed = true;
@@ -285,7 +327,7 @@ public sealed class FixRunner
             rebootRequired ? RunState.AwaitingReboot : RunState.Completed,
             rebootRequired ? pending : null);
 
-        return new RunResult(false, null, sequence, results, rebootRequired);
+        return new RunResult(false, null, sequence, results, rebootRequired, withoutRestorePoint);
 
         static RunResult Abort(string reason) =>
             new(true, reason, null, Array.Empty<FixReport>(), false);

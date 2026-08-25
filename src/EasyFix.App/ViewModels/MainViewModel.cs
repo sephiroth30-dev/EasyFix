@@ -90,6 +90,8 @@ public sealed partial class MainViewModel : ObservableObject
             StatusMessage = null;
             CurrentScreen = Screen.Apps;
         });
+
+        DiagnoseWingetCommand = new AsyncRelayCommand(DiagnoseWingetAsync, () => !IsBusy);
     }
 
     public IAsyncRelayCommand AnalyzeCommand { get; }
@@ -98,6 +100,7 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand CancelCommand { get; }
     public IRelayCommand BackCommand { get; }
     public IRelayCommand InstallAppsCommand { get; }
+    public IAsyncRelayCommand DiagnoseWingetCommand { get; }
 
     // ---- Estado de la interfaz --------------------------------------------------------------
 
@@ -123,7 +126,16 @@ public sealed partial class MainViewModel : ObservableObject
     {
         RepairCommand.NotifyCanExecuteChanged();
         RunInstallCommand.NotifyCanExecuteChanged();
+        DiagnoseWingetCommand.NotifyCanExecuteChanged();
     }
+
+    // ---- Marca ------------------------------------------------------------------------------
+
+    /// <summary>Nombre del producto, de la configuración.</summary>
+    public string ProductName => _options.Branding.ProductName;
+
+    /// <summary>"por Andrés Hernández", o vacío si no hay nombre configurado.</summary>
+    public string? Attribution => _options.Branding.Attribution;
 
     /// <summary>Lo que se puede arreglar sin comprar nada.</summary>
     public ObservableCollection<ReportRow> SoftwareRows { get; } = new();
@@ -165,6 +177,18 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _rebootRequired;
+
+    /// <summary>
+    /// El técnico eligió aplicar cambios aunque no se pueda crear el punto de restauración.
+    /// </summary>
+    /// <remarks>
+    /// Nunca es el default. En muchos equipos Restaurar sistema viene deshabilitado de fábrica, y
+    /// bloquear todo por eso dejaba la herramienta inservible — que es lo que pasó en la primera
+    /// prueba real. El journal sigue registrando cada cambio, así que «Deshacer todo» funciona
+    /// igual; lo que se pierde es el respaldo del sistema completo.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _allowWithoutRestorePoint;
 
     [ObservableProperty]
     private string? _installProgressLabel;
@@ -320,6 +344,7 @@ public sealed partial class MainViewModel : ObservableObject
                 _lastCrash,
                 journal,
                 BitLockerKeyConfirmed,
+                AllowWithoutRestorePoint,
                 progress,
                 _cts!.Token);
 
@@ -397,14 +422,19 @@ public sealed partial class MainViewModel : ObservableObject
         int applied = result.Applied.Count();
         int failed = result.Failed.Count();
 
-        var parts = new List<string> { $"Punto de restauración {result.RestorePointSequence} creado" };
+        var parts = new List<string>
+        {
+            result.RanWithoutRestorePoint
+                ? "SIN punto de restauración (por tu decisión)"
+                : $"Punto de restauración {result.RestorePointSequence} creado",
+        };
         if (applied > 0) { parts.Add($"{applied} reparación(es) aplicada(s)"); }
         if (failed > 0) { parts.Add($"{failed} con error"); }
         if (result.RebootRequired) { parts.Add("hace falta reiniciar para completar"); }
 
         SetStatus(
             string.Join(" · ", parts) + $". Registro en {journalPath}",
-            warning: failed > 0 || result.RebootRequired);
+            warning: failed > 0 || result.RebootRequired || result.RanWithoutRestorePoint);
     }
 
     // ---- Instalar programas -----------------------------------------------------------------
@@ -456,6 +486,33 @@ public sealed partial class MainViewModel : ObservableObject
             _logger.LogError(ex, "La instalación falló.");
             InstallProgressLabel = null;
             SetStatus($"La instalación falló: {ex.GetType().Name}: {ex.Message}", warning: true);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Muestra dónde está winget, su versión y si puede leer su catálogo. Solo lectura.
+    /// </summary>
+    /// <remarks>
+    /// Existe por el fallo más difícil de diagnosticar del módulo: winget corriendo elevado no ve su
+    /// propio catálogo, porque se instala por usuario. Sin este botón, el técnico solo veía «Falló».
+    /// </remarks>
+    private async Task DiagnoseWingetAsync()
+    {
+        IsBusy = true;
+        try
+        {
+            string report = await _winget.DiagnoseAsync(CancellationToken.None);
+            _logger.LogInformation("Diagnóstico de winget:\n{Report}", report);
+            SetStatus(report, warning: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "El diagnóstico de winget falló.");
+            SetStatus($"El diagnóstico de winget falló: {ex.GetType().Name}: {ex.Message}", warning: true);
         }
         finally
         {

@@ -57,9 +57,22 @@ public sealed class WingetServiceTests
     private static WingetPackage Package(string id, string name) =>
         new() { Id = id, Name = name };
 
+    /// <summary>Descargador que nunca se usa: estos tests solo ejercitan la vía de winget.</summary>
+    private sealed class UnusedDownloader : IFileDownloader
+    {
+        public Task<string> DownloadAsync(Uri url, string fileName, IProgress<string>? p, CancellationToken ct) =>
+            throw new InvalidOperationException("No debería descargarse nada en estos tests.");
+
+        public Task<Uri?> ResolveGitHubLatestAsync(string repository, string assetPattern, CancellationToken ct) =>
+            throw new InvalidOperationException("No debería resolverse nada en estos tests.");
+    }
+
     private static WingetService Build(IProcessRunner runner, string? wingetPath = WingetPath) =>
         new(runner,
             new FakeLocator(wingetPath),
+            new DirectDownloadInstaller(
+                new UnusedDownloader(), runner, new ThresholdOptions(),
+                NullLogger<DirectDownloadInstaller>.Instance),
             new ThresholdOptions(),
             NullLogger<WingetService>.Instance);
 

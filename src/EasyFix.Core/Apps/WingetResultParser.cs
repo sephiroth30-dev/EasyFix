@@ -20,6 +20,15 @@ public enum WingetOutcome
     /// <summary>Falta winget en el equipo: hay que hacer el bootstrap.</summary>
     WingetMissing,
 
+    /// <summary>
+    /// winget está pero no puede leer sus fuentes. Pasa al correr elevado: el paquete de fuentes se
+    /// instala por usuario y la sesión de administrador no lo tiene.
+    /// </summary>
+    SourceUnavailable,
+
+    /// <summary>El paquete no está en el repositorio de winget. Hace falta descarga directa.</summary>
+    NotInRepository,
+
     /// <summary>Se cortó por timeout.</summary>
     TimedOut,
 
@@ -73,6 +82,22 @@ public static class WingetResultParser
     /// <summary><c>APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER</c> (pendiente de verificar).</summary>
     public static readonly int NoApplicableInstaller = unchecked((int)0x8A150061);
 
+    /// <summary>
+    /// <c>APPINSTALLER_CLI_ERROR_SOURCE_DATA_MISSING</c>: falta la metadata de la fuente.
+    /// </summary>
+    /// <remarks>
+    /// Es el error que aparece al correr winget elevado. El paquete <c>Microsoft.Winget.Source</c> se
+    /// instala por usuario y la sesión del administrador no lo tiene, así que winget queda sin
+    /// catálogo. Ver microsoft/winget-cli#698. Se remedia con <c>winget source reset --force</c>.
+    /// </remarks>
+    public static readonly int SourceDataMissing = unchecked((int)0x8A15000F);
+
+    /// <summary><c>APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES</c>.</summary>
+    public static readonly int FailedToOpenAllSources = unchecked((int)0x8A150014);
+
+    /// <summary><c>APPINSTALLER_CLI_ERROR_SOURCE_NOT_FOUND</c>.</summary>
+    public static readonly int SourceNotFound = unchecked((int)0x8A150010);
+
     public static WingetResult Parse(string packageId, ProcessResult process)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -111,6 +136,15 @@ public static class WingetResultParser
             return new WingetResult(packageId, WingetOutcome.NotFound,
                 $"No se encontró el paquete '{packageId}'. Puede haber cambiado de ID en el " +
                 "repositorio: hay que actualizarlo en appsettings.json.", code);
+        }
+
+        if (code == SourceDataMissing || code == FailedToOpenAllSources || code == SourceNotFound)
+        {
+            return new WingetResult(packageId, WingetOutcome.SourceUnavailable,
+                "winget no puede leer su catálogo de paquetes. Pasa al ejecutarse como " +
+                "administrador: el catálogo se instala por usuario y la sesión elevada no lo tiene. " +
+                "EasyFix intenta repararlo solo con «winget source reset --force»; si sigue " +
+                "fallando, abrí una consola SIN administrador y corré ese mismo comando.", code);
         }
 
         if (code == NoApplicableInstaller)

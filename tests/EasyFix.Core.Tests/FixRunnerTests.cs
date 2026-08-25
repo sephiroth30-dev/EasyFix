@@ -196,6 +196,96 @@ public sealed class FixRunnerTests
         Assert.Single(result.Applied);
     }
 
+    [Fact]
+    public async Task SinPuntoDeRestauracionPeroConOverride_AplicaIgual()
+    {
+        // Salió de la primera prueba real: en muchos equipos Restaurar sistema viene deshabilitado
+        // de fábrica, y abortar por eso dejaba la herramienta inservible. El override es una
+        // decisión explícita del técnico, nunca el default.
+        (FixRunner runner, _, _) = Build(restoreSequence: null);
+        (RunJournal journal, _) = Journal();
+        var fix = new FakeFix("limpieza");
+
+        RunResult result = await runner.RunAsync(
+            new[] { fix }, HealthyPc, null, journal,
+            bitLockerKeyConfirmed: false, allowWithoutRestorePoint: true);
+
+        Assert.False(result.Aborted);
+        Assert.True(fix.WasApplied);
+        Assert.True(result.RanWithoutRestorePoint);
+        Assert.Null(result.RestorePointSequence);
+    }
+
+    [Fact]
+    public async Task ConOverride_QuedaRegistradoEnElJournalQueNoHuboRedDeSeguridad()
+    {
+        (FixRunner runner, _, _) = Build(restoreSequence: null);
+        (RunJournal journal, ListJournalSink sink) = Journal();
+
+        await runner.RunAsync(
+            new[] { new FakeFix("a") }, HealthyPc, null, journal, false, allowWithoutRestorePoint: true);
+
+        LoadedJournal loaded = JournalReader.Parse(sink.Lines);
+
+        // El journal es la constancia de que se trabajó sin respaldo del sistema.
+        Assert.Contains(loaded.Actions, a => a.FixId == "restorepoint.skipped");
+        Assert.Equal(RunState.Completed, loaded.State);
+    }
+
+    [Fact]
+    public async Task ConOverride_ElUndoSigueFuncionando()
+    {
+        // Es el punto: sin punto de restauración se pierde el respaldo del SISTEMA, pero cada cambio
+        // se sigue registrando, así que «Deshacer todo» funciona igual.
+        (FixRunner runner, _, _) = Build(restoreSequence: null);
+        (RunJournal journal, ListJournalSink sink) = Journal();
+
+        journal.Append(new JournalAction
+        {
+            FixId = "startup.disable",
+            Target = "Spotify",
+            Reversible = true,
+            Undo = new UndoStep { Kind = UndoKind.RegistryBinaryValue },
+        });
+
+        await runner.RunAsync(
+            new[] { new FakeFix("a") }, HealthyPc, null, journal, false, allowWithoutRestorePoint: true);
+
+        LoadedJournal loaded = JournalReader.Parse(sink.Lines);
+        Assert.True(loaded.HasReversibleActions);
+    }
+
+    [Fact]
+    public async Task OverrideNoSaltaLaCompuertaDelDiscoFallando()
+    {
+        // El override es solo para el punto de restauración. Un disco muriendo sigue abortando:
+        // continuar ahí no es una decisión que corresponda ofrecer.
+        (FixRunner runner, _, _) = Build(restoreSequence: null);
+        (RunJournal journal, _) = Journal();
+        var fix = new FakeFix("cualquiera");
+
+        RunResult result = await runner.RunAsync(
+            new[] { fix },
+            HealthyPc with { PrimaryDiskHealth = DiskHealth.Failing },
+            null, journal, false, allowWithoutRestorePoint: true);
+
+        Assert.True(result.Aborted);
+        Assert.False(fix.WasApplied);
+    }
+
+    [Fact]
+    public async Task ConPuntoDeRestauracionYOverride_NoMarcaQueCorrioSinRed()
+    {
+        (FixRunner runner, _, _) = Build(restoreSequence: 42);
+        (RunJournal journal, _) = Journal();
+
+        RunResult result = await runner.RunAsync(
+            new[] { new FakeFix("a") }, HealthyPc, null, journal, false, allowWithoutRestorePoint: true);
+
+        Assert.False(result.RanWithoutRestorePoint);
+        Assert.Equal(42, result.RestorePointSequence);
+    }
+
     // ---- Compuerta 3: BitLocker -------------------------------------------------------------
 
     [Fact]
@@ -432,7 +522,7 @@ public sealed class FixRunnerTests
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => runner.RunAsync(new[] { new FakeFix("a") }, HealthyPc, null, journal, false, null, cts.Token));
+            () => runner.RunAsync(new[] { new FakeFix("a") }, HealthyPc, null, journal, false, false, null, cts.Token));
     }
 
     [Fact]

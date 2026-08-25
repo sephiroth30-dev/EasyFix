@@ -36,22 +36,29 @@ public sealed class WingetService
 {
     private readonly IProcessRunner _runner;
     private readonly IWingetLocator _locator;
+    private readonly DirectDownloadInstaller _directInstaller;
     private readonly ThresholdOptions _thresholds;
     private readonly ILogger<WingetService> _logger;
+
+    /// <summary>Se intenta reparar las fuentes una sola vez por corrida.</summary>
+    private bool _sourceRepairAttempted;
 
     public WingetService(
         IProcessRunner runner,
         IWingetLocator locator,
+        DirectDownloadInstaller directInstaller,
         ThresholdOptions thresholds,
         ILogger<WingetService> logger)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(directInstaller);
         ArgumentNullException.ThrowIfNull(thresholds);
         ArgumentNullException.ThrowIfNull(logger);
 
         _runner = runner;
         _locator = locator;
+        _directInstaller = directInstaller;
         _thresholds = thresholds;
         _logger = logger;
     }
@@ -88,17 +95,8 @@ public sealed class WingetService
 
         var results = new List<WingetResult>(packages.Count);
 
+        _sourceRepairAttempted = false;
         string? winget = _locator.Find();
-        if (winget is null)
-        {
-            // Sin winget no se instala nada, y se dice por qué en cada paquete.
-            foreach (WingetPackage package in packages)
-            {
-                results.Add(WingetResultParser.Missing(package.Id));
-            }
-
-            return results;
-        }
 
         for (int i = 0; i < packages.Count; i++)
         {
@@ -107,7 +105,38 @@ public sealed class WingetService
             WingetPackage package = packages[i];
             progress?.Report(new InstallProgress(package.Id, package.Name, i + 1, packages.Count));
 
-            WingetResult result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+            WingetResult result;
+
+            if (package.Direct is not null)
+            {
+                // Configurado para bajarse de su origen oficial: no pasa por winget en absoluto.
+                var textProgress = new Progress<string>(_ => { });
+                result = await _directInstaller
+                    .InstallAsync(package, textProgress, ct)
+                    .ConfigureAwait(false);
+            }
+            else if (winget is null)
+            {
+                result = WingetResultParser.Missing(package.Id);
+            }
+            else
+            {
+                result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+
+                // Reparar las fuentes y reintentar una vez. Es el fallo más común al correr elevado:
+                // el catálogo de winget se instala por usuario y la sesión de administrador no lo ve.
+                if (result.Outcome == WingetOutcome.SourceUnavailable && !_sourceRepairAttempted)
+                {
+                    _sourceRepairAttempted = true;
+
+                    if (await TryRepairSourcesAsync(winget, ct).ConfigureAwait(false))
+                    {
+                        _logger.LogInformation("Fuentes de winget reparadas. Reintentando {Package}.", package.Id);
+                        result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+                    }
+                }
+            }
+
             results.Add(result);
 
             progress?.Report(new InstallProgress(
@@ -115,6 +144,80 @@ public sealed class WingetService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Intenta reparar el catálogo de winget.
+    /// </summary>
+    /// <remarks>
+    /// El error <c>0x8A15000F</c> aparece al correr winget desde una sesión elevada: el paquete
+    /// <c>Microsoft.Winget.Source</c> está instalado para el usuario que inició sesión, no para la
+    /// cuenta de administrador con la que corre el proceso elevado, así que winget queda sin
+    /// catálogo y toda instalación falla. Ver microsoft/winget-cli#698.
+    /// <para><c>source reset --force</c> vuelve a agregar las fuentes por defecto. Después se fuerza
+    /// una actualización del catálogo, que es lo que faltaba.</para>
+    /// </remarks>
+    private async Task<bool> TryRepairSourcesAsync(string wingetPath, CancellationToken ct)
+    {
+        _logger.LogWarning("winget no puede leer sus fuentes. Intentando «source reset --force».");
+
+        ProcessResult reset = await _runner
+            .RunAsync(wingetPath, new[] { "source", "reset", "--force" }, TimeSpan.FromMinutes(2), ct)
+            .ConfigureAwait(false);
+
+        if (!reset.Succeeded)
+        {
+            _logger.LogError(
+                "«winget source reset --force» falló con {Code}: {Error}",
+                reset.ExitCode, reset.StandardError);
+            return false;
+        }
+
+        ProcessResult update = await _runner
+            .RunAsync(wingetPath, new[] { "source", "update" }, TimeSpan.FromMinutes(5), ct)
+            .ConfigureAwait(false);
+
+        if (!update.Succeeded)
+        {
+            _logger.LogWarning(
+                "«winget source update» falló con {Code}, pero el reset sí funcionó: se reintenta igual.",
+                update.ExitCode);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Diagnóstico de winget, para cuando falla y hace falta saber por qué. Solo lectura.
+    /// </summary>
+    public async Task<string> DiagnoseAsync(CancellationToken ct = default)
+    {
+        string? winget = _locator.Find();
+        if (winget is null)
+        {
+            return "winget.exe NO se encontró. Se buscó en Program Files\\WindowsApps " +
+                   "(instalación del paquete) y en el alias de %LOCALAPPDATA%.";
+        }
+
+        var report = new System.Text.StringBuilder();
+        report.AppendLine($"winget: {winget}");
+
+        ProcessResult version = await _runner
+            .RunAsync(winget, new[] { "--version" }, TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+        report.AppendLine($"versión: {version.StandardOutput.Trim()} (código {version.ExitCode})");
+
+        ProcessResult sources = await _runner
+            .RunAsync(winget, new[] { "source", "list" }, TimeSpan.FromMinutes(1), ct).ConfigureAwait(false);
+        report.AppendLine($"fuentes (código {sources.ExitCode}):");
+        report.AppendLine(sources.StandardOutput.Trim());
+
+        if (sources.StandardError.Trim().Length > 0)
+        {
+            report.AppendLine("stderr:");
+            report.AppendLine(sources.StandardError.Trim());
+        }
+
+        return report.ToString();
     }
 
     private async Task<WingetResult> InstallOneAsync(

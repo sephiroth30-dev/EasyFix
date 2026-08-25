@@ -1,11 +1,11 @@
-# EasyFix
+# EasyFix — por Andrés Hernández
 
 Herramienta de técnico para Windows 10 y 11. Un `.exe` portable que llevás en USB: diagnostica el
 equipo, aplica las mejoras seguras con un click, instala el software base y repara los errores
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **277 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **282 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
@@ -142,7 +142,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 277 pasan, 2 se omiten fuera de Windows
+dotnet test           # 282 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash

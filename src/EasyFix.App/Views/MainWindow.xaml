@@ -81,6 +81,11 @@
                     <TextBlock Text="{Binding Note}" Style="{StaticResource MutedText}"
                                FontSize="11" Margin="0,2,0,0"
                                Visibility="{Binding Note, Converter={StaticResource EmptyVis}}" />
+                    <!-- El motivo del fallo, con su código. Sin esto, "Falló" no sirve de nada. -->
+                    <TextBlock Text="{Binding StatusDetail}" TextWrapping="Wrap"
+                               FontSize="11" Margin="0,4,0,0"
+                               Foreground="{StaticResource DangerBrush}"
+                               Visibility="{Binding StatusDetail, Converter={StaticResource EmptyVis}}" />
                 </StackPanel>
 
                 <TextBlock Grid.Column="3" Text="{Binding Status}" FontFamily="Consolas"
@@ -117,8 +122,12 @@
             <!-- ===== Barra de título propia ===== -->
             <Grid Grid.Row="0" Height="40" Background="Transparent"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <TextBlock Text="EasyFix" Margin="20,0,0,0" VerticalAlignment="Center"
-                           Style="{StaticResource TitleText}" />
+                <StackPanel Orientation="Horizontal" Margin="20,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ProductName}" Style="{StaticResource TitleText}" />
+                    <TextBlock Text="{Binding Attribution}" Style="{StaticResource MutedText}"
+                               FontSize="11" VerticalAlignment="Center" Margin="8,1,0,0"
+                               Visibility="{Binding Attribution, Converter={StaticResource EmptyVis}}" />
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="—" Style="{StaticResource ChromeButton}" Click="Minimize_Click"
                             ToolTip="Minimizar" />
@@ -254,6 +263,22 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Continuar sin punto de restauración: decisión explícita del técnico, nunca
+                         el default. En muchos equipos Restaurar sistema viene deshabilitado y
+                         bloquear todo dejaba la herramienta inservible. -->
+                    <Border Style="{StaticResource StatusPanel}" Margin="0,0,0,10"
+                            BorderBrush="{StaticResource WarningBrush}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource LabeledCheckBox}"
+                                      IsChecked="{Binding AllowWithoutRestorePoint, Mode=TwoWay}">
+                                <TextBlock Text="Continuar aunque no se pueda crear el punto de restauración"
+                                           TextWrapping="Wrap" />
+                            </CheckBox>
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="10.5" Margin="25,5,0,0"
+                                       Text="Cada cambio queda registrado igual, así que «Deshacer todo» sigue funcionando. Lo que se pierde es el respaldo del sistema completo." />
+                        </StackPanel>
+                    </Border>
+
                     <StackPanel Orientation="Horizontal">
                         <Button Content="Volver" Command="{Binding BackCommand}"
                                 Style="{StaticResource GhostButton}" Width="100" />
@@ -283,7 +308,7 @@
                     <StackPanel>
                         <ItemsControl ItemsSource="{Binding Apps}"
                                       ItemTemplate="{StaticResource AppRowTemplate}"
-                                      IsEnabled="{Binding IsInstalling, Converter={StaticResource Invert}}" />
+                                      IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
 
                         <TextBlock Text="{Binding InstallProgressLabel}" Style="{StaticResource MutedText}"
                                    FontSize="11.5" Margin="0,14,0,0"
@@ -292,7 +317,7 @@
                         <ProgressBar IsIndeterminate="True" Height="3" Margin="0,8,0,0"
                                      Background="{StaticResource BorderBrush}"
                                      Foreground="{StaticResource AccentBrush}" BorderThickness="0"
-                                     Visibility="{Binding IsInstalling, Converter={StaticResource BoolVis}}" />
+                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
 
                         <Border Style="{StaticResource StatusPanel}"
                                 Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
@@ -304,9 +329,12 @@
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
                     <Button Content="Volver" Command="{Binding BackCommand}"
-                            Style="{StaticResource GhostButton}" Width="110"
-                            IsEnabled="{Binding IsInstalling, Converter={StaticResource Invert}}" />
-                    <Button Content="Instalar los marcados" Command="{Binding RunInstallCommand}"
+                            Style="{StaticResource GhostButton}" Width="80"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
+                    <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            ToolTip="Muestra dónde está winget, su versión y si puede leer su catálogo." />
+                    <Button Content="Instalar" Command="{Binding RunInstallCommand}"
                             Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
                 </StackPanel>
             </Grid>
