@@ -3,7 +3,7 @@
 Qué probar, en qué orden, y qué capturar. El orden importa: va de lo que no puede romper nada a lo
 que sí.
 
-**Antes de empezar:** anotá la versión que aparece en la barra de título (`v0.3.0`). Un reporte sin
+**Antes de empezar:** anotá la versión que aparece en la barra de título (hoy `v0.5.0`). Un reporte sin
 versión no se puede atar a ningún build.
 
 ---
@@ -25,7 +25,7 @@ El log tiene el detalle de cada sonda, cada llamada a winget con su código de s
 
 - [ ] Doble click → aparece el aviso de administrador (UAC) → aceptar.
 - [ ] SmartScreen dice que es desconocido → «Más información» → «Ejecutar de todas formas».
-- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.3.0`.
+- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.5.0`.
 - [ ] Click derecho en el `.exe` → Propiedades → Detalles: aparece la empresa y el copyright.
 
 **Si no arranca:** el log puede no haberse creado todavía. Capturá el mensaje de error textual.
@@ -69,7 +69,8 @@ Instala software. En un equipo propio primero.
 - [ ] **«Diagnosticar winget» primero.** Muestra dónde está winget, su versión y si lee su catálogo.
       Es lo que dice si el problema de la prueba anterior quedó resuelto.
 - [ ] Instalar solo **7-Zip** para empezar: es chico, rápido e inofensivo.
-- [ ] Después **RustDesk**, que va por descarga directa desde GitHub y no por winget.
+- [ ] Después **RustDesk** y **Chrome**, que van por descarga directa y no por winget:
+      RustDesk desde GitHub (prefiere el MSI), Chrome desde el MSI empresarial de Google.
 - [ ] Al final el resto.
 
 ### Lo que hay que mirar
@@ -81,6 +82,9 @@ Instala software. En un equipo propio primero.
 | `winget sin catálogo` | El problema de la sesión elevada. Debería auto-repararse y reintentar |
 | `No está en el catálogo` | El ID cambió. Hay que corregirlo en `appsettings.json` |
 | `Falló` | Trae el código de error en rojo debajo del nombre |
+
+Los dos que vienen de descarga directa tienen **timeout propio** —8 min RustDesk, 10 min Chrome— en
+vez de los 30 min generales. Si uno se cuelga, ya no bloquea toda la tanda.
 
 ### Qué capturar
 
@@ -155,7 +159,7 @@ código apunta a RAM o disco, reparar no sirve y el reporte lo tiene que decir.
 ## Plantilla para reportar
 
 ```
-Versión:        v0.3.0
+Versión:        v0.5.0
 Equipo:         (marca, modelo, Windows 10/11, build)
 Nivel probado:  0 / 1 / 2 / 3 / 4
 
