@@ -20,6 +20,7 @@ public enum Screen
     Apps,
     Repairing,
     RepairResult,
+    Undo,
 }
 
 /// <summary>Una línea del reporte, ya lista para mostrar.</summary>
@@ -41,7 +42,12 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly WingetService _winget;
     private readonly FixRunner _fixRunner;
     private readonly IEnumerable<IFix> _fixes;
+    private readonly UndoEngine _undoEngine;
+    private readonly JournalStore _journals;
     private readonly ILogger<MainViewModel> _logger;
+
+    /// <summary>Corrida que se va a deshacer. Se resuelve al abrir la pantalla.</summary>
+    private StoredRun? _undoTarget;
 
     private CancellationTokenSource? _cts;
 
@@ -56,6 +62,8 @@ public sealed partial class MainViewModel : ObservableObject
         WingetService winget,
         FixRunner fixRunner,
         IEnumerable<IFix> fixes,
+        UndoEngine undoEngine,
+        JournalStore journals,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -64,6 +72,8 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(winget);
         ArgumentNullException.ThrowIfNull(fixRunner);
         ArgumentNullException.ThrowIfNull(fixes);
+        ArgumentNullException.ThrowIfNull(undoEngine);
+        ArgumentNullException.ThrowIfNull(journals);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options;
@@ -72,6 +82,8 @@ public sealed partial class MainViewModel : ObservableObject
         _winget = winget;
         _fixRunner = fixRunner;
         _fixes = fixes;
+        _undoEngine = undoEngine;
+        _journals = journals;
         _logger = logger;
 
         foreach (WingetPackage package in options.WingetPackages)
@@ -92,6 +104,12 @@ public sealed partial class MainViewModel : ObservableObject
         });
 
         DiagnoseWingetCommand = new AsyncRelayCommand(DiagnoseWingetAsync, () => !IsBusy);
+
+        OpenUndoCommand = new RelayCommand(OpenUndo);
+        UndoCommand = new AsyncRelayCommand(UndoAsync, () => !IsBusy && _undoTarget is not null);
+
+        // Al arrancar se busca si quedó algo para deshacer de una visita anterior.
+        RefreshUndoAvailability();
     }
 
     public IAsyncRelayCommand AnalyzeCommand { get; }
@@ -101,6 +119,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand BackCommand { get; }
     public IRelayCommand InstallAppsCommand { get; }
     public IAsyncRelayCommand DiagnoseWingetCommand { get; }
+    public IRelayCommand OpenUndoCommand { get; }
+    public IAsyncRelayCommand UndoCommand { get; }
 
     // ---- Estado de la interfaz --------------------------------------------------------------
 
@@ -127,7 +147,201 @@ public sealed partial class MainViewModel : ObservableObject
         RepairCommand.NotifyCanExecuteChanged();
         RunInstallCommand.NotifyCanExecuteChanged();
         DiagnoseWingetCommand.NotifyCanExecuteChanged();
+        UndoCommand.NotifyCanExecuteChanged();
     }
+
+    // ---- Deshacer ---------------------------------------------------------------------------
+
+    /// <summary>Lo que se va a revertir, una fila por acción.</summary>
+    public ObservableCollection<ReportRow> UndoRows { get; } = new();
+
+    /// <summary><c>true</c> si hay una corrida anterior con algo que revertir.</summary>
+    [ObservableProperty]
+    private bool _canUndo;
+
+    /// <summary>Resumen de la corrida a deshacer, para la pantalla de inicio.</summary>
+    [ObservableProperty]
+    private string? _undoSummary;
+
+    /// <summary>
+    /// Busca si hay algo para deshacer.
+    /// </summary>
+    /// <remarks>
+    /// Se consulta al arrancar y después de cada reparación. Los journals viven en
+    /// <c>%ProgramData%</c>, así que esto funciona entre sesiones: el técnico repara hoy, cierra la
+    /// app, y la semana que viene vuelve al mismo equipo y puede revertir.
+    /// </remarks>
+    private void RefreshUndoAvailability()
+    {
+        try
+        {
+            _undoTarget = _journals.FindLatestUndoable();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo buscar corridas para deshacer.");
+            _undoTarget = null;
+        }
+
+        CanUndo = _undoTarget is not null;
+
+        UndoSummary = _undoTarget is { } run
+            ? $"Última reparación: {run.ModifiedUtc.ToLocalTime():dd/MM HH:mm} · " +
+              $"{run.ReversibleCount} cambio(s) reversible(s)"
+            : null;
+
+        UndoCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Muestra qué se va a revertir ANTES de hacerlo.
+    /// </summary>
+    /// <remarks>
+    /// Deshacer también es un cambio en el equipo, así que no se aplica de un click: primero se lista
+    /// qué se va a tocar y qué no se puede recuperar.
+    /// </remarks>
+    private void OpenUndo()
+    {
+        RefreshUndoAvailability();
+        UndoRows.Clear();
+        StatusMessage = null;
+
+        if (_undoTarget is not { } run)
+        {
+            SetStatus("No hay ninguna reparación anterior con cambios reversibles.", warning: false);
+            return;
+        }
+
+        foreach (JournalAction action in run.Journal.Actions.Reverse())
+        {
+            bool reversible = action.Reversible && action.Undo is not null;
+
+            UndoRows.Add(new ReportRow(
+                DescribeFix(action.FixId),
+                action.Note ?? action.Target,
+                reversible ? "Se revierte" : "NO se puede revertir",
+                reversible ? "ok" : "warn"));
+        }
+
+        long lost = run.Journal.Actions.Sum(a => a.Reversible ? 0 : a.FreedBytes ?? 0);
+
+        var parts = new List<string>
+        {
+            $"{run.ReversibleCount} cambio(s) se revierten",
+        };
+
+        if (run.IrreversibleCount > 0)
+        {
+            parts.Add($"{run.IrreversibleCount} no se pueden revertir");
+        }
+
+        if (lost > 0)
+        {
+            parts.Add($"{lost / 1024.0 / 1024.0:0.#} MB de archivos borrados no vuelven");
+        }
+
+        if (run.Journal.Header?.RestorePointSequence is long sequence)
+        {
+            parts.Add($"hay punto de restauración {sequence} como respaldo");
+        }
+        else
+        {
+            parts.Add("esa corrida NO tuvo punto de restauración");
+        }
+
+        SetStatus(string.Join(" · ", parts) + ".", warning: run.IrreversibleCount > 0);
+        CurrentScreen = Screen.Undo;
+    }
+
+    private async Task UndoAsync()
+    {
+        if (_undoTarget is not { } run)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        ProgressLabel = "Revirtiendo cambios…";
+
+        try
+        {
+            UndoReport report = await _undoEngine.UndoAsync(run.Journal, CancellationToken.None);
+
+            _journals.MarkUndone(run);
+
+            UndoRows.Clear();
+
+            foreach (JournalAction action in report.Undone)
+            {
+                UndoRows.Add(new ReportRow(
+                    DescribeFix(action.FixId), action.Note ?? action.Target, "Revertido", "ok"));
+            }
+
+            foreach ((JournalAction action, string error) in report.Failed)
+            {
+                UndoRows.Add(new ReportRow(
+                    DescribeFix(action.FixId), error, "Falló", "crit"));
+            }
+
+            foreach (JournalAction action in report.NoHandler)
+            {
+                UndoRows.Add(new ReportRow(
+                    DescribeFix(action.FixId),
+                    "No hay forma automática de revertir este cambio. Queda el punto de restauración.",
+                    "Sin revertir", "warn"));
+            }
+
+            foreach (JournalAction action in report.NotReversible)
+            {
+                UndoRows.Add(new ReportRow(
+                    DescribeFix(action.FixId),
+                    action.Note ?? action.Target, "No era reversible", "info"));
+            }
+
+            var parts = new List<string> { $"{report.Undone.Count} cambio(s) revertido(s)" };
+            if (report.Failed.Count > 0) { parts.Add($"{report.Failed.Count} con error"); }
+            if (report.NoHandler.Count > 0) { parts.Add($"{report.NoHandler.Count} sin forma de revertir"); }
+            if (report.BytesNotRecoverable > 0)
+            {
+                parts.Add($"{report.BytesNotRecoverable / 1024.0 / 1024.0:0.#} MB borrados no vuelven");
+            }
+
+            SetStatus(string.Join(" · ", parts) + ".", warning: !report.FullySucceeded);
+
+            _logger.LogInformation(
+                "Deshacer {RunId}: {Undone} revertidos, {Failed} con error, {NoHandler} sin handler.",
+                run.RunId, report.Undone.Count, report.Failed.Count, report.NoHandler.Count);
+
+            RefreshUndoAvailability();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Deshacer falló.");
+            SetStatus($"No se pudo deshacer: {ex.GetType().Name}: {ex.Message}", warning: true);
+        }
+        finally
+        {
+            IsBusy = false;
+            ProgressLabel = string.Empty;
+        }
+    }
+
+    /// <summary>Traduce el id de un fix a algo legible en la pantalla de deshacer.</summary>
+    private static string DescribeFix(string fixId) => fixId switch
+    {
+        "system.repair-files" => "Reparación de archivos del sistema",
+        "disk.chkdsk" => "Revisión del disco",
+        "update.reset-components" => "Restablecimiento de Windows Update",
+        "network.reset" => "Restablecimiento de la red",
+        "memory.schedule-test" => "Diagnóstico de memoria programado",
+        "update.remove" => "Actualización desinstalada",
+        "restorepoint.throttle" => "Límite de puntos de restauración",
+        "restorepoint.skipped" => "Se trabajó sin punto de restauración",
+        "bitlocker.suspend" => "Suspensión de BitLocker",
+        "startup.disable" => "Programa quitado del inicio",
+        "temp.clean" => "Limpieza de temporales",
+        _ => fixId,
+    };
 
     // ---- Marca ------------------------------------------------------------------------------
 
@@ -390,6 +604,11 @@ public sealed partial class MainViewModel : ObservableObject
 
             ShowRepairResult(result, sink.FilePath);
             CurrentScreen = Screen.RepairResult;
+
+            // Cerrar el sink antes de buscar, para que el journal esté completo en disco.
+            sink.Dispose();
+            sink = null;
+            RefreshUndoAvailability();
         }
         catch (OperationCanceledException)
         {

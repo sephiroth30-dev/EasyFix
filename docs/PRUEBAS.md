@@ -109,7 +109,11 @@ Pasos, en orden:
        **primero sin marcarla**, para confirmar que aborta como debe.
 4. [ ] Después marcala y confirmá que aplica los cambios igual.
 5. [ ] Reiniciar si lo pide, y volver a analizar: el tiempo de arranque se compara contra el anterior.
-6. [ ] Probar **«Deshacer todo»** y verificar que el estado vuelve.
+6. [ ] Volver al inicio: aparece **«Deshacer la última reparación»** con la fecha y la cantidad de
+       cambios reversibles.
+7. [ ] Abrirlo: lista qué se revierte y qué no se puede recuperar, **sin aplicar nada todavía**.
+8. [ ] **«Deshacer todo»** y verificar que el estado vuelve.
+9. [ ] Cerrar la app, volver a abrirla: el botón de deshacer **ya no debe aparecer** para esa corrida.
 
 ### Lo que hay que mirar
 

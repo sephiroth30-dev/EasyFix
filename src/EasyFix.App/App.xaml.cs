@@ -88,6 +88,7 @@ public partial class App : Application
         services.AddSingleton<StartupClassifier>();
         services.AddSingleton<JunctionSafeCleaner>();
         services.AddSingleton<UndoEngine>();
+        services.AddSingleton<JournalStore>();
         services.AddSingleton<HardwareAdvisor>();
         services.AddSingleton<SystemProbe>();
         services.AddSingleton<IWingetLocator, WingetLocator>();

@@ -5,7 +5,7 @@ equipo, aplica las mejoras seguras con un click, instala el software base y repa
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **324 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **335 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
@@ -110,7 +110,7 @@ Los binarios sin firmar caen en Capa 3 y se marcan en rojo como posible malware.
 - Punto de restauración **verificado** antes del primer cambio. Si no se puede crear, se aborta.
 - Journal por corrida en `%ProgramData%\EasyFix\runs\<runId>.json`, escrito **antes** de cada cambio.
   Si la app muere a mitad de camino, el undo sigue funcionando.
-- Botón "Deshacer todo".
+- Botón «Deshacer la última reparación», que funciona entre sesiones.
 - El borrado de archivos se marca `reversible: false` y se dice en el reporte. No se miente sobre el undo.
 
 ### BitLocker
@@ -142,7 +142,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 324 pasan, 2 se omiten fuera de Windows
+dotnet test           # 335 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash

@@ -174,11 +174,25 @@
                         </StackPanel>
                     </Button>
 
-                    <Button Style="{StaticResource ActionButton}" Command="{Binding InstallAppsCommand}">
+                    <Button Style="{StaticResource ActionButton}" Command="{Binding InstallAppsCommand}"
+                            Margin="0,0,0,10">
                         <StackPanel>
                             <TextBlock Text="Instalar programas" FontSize="15" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextBrush}" />
                             <TextBlock Text="Chrome, Acrobat Reader, 7-Zip y los redistribuibles de Visual C++."
+                                       Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Solo aparece si hay una corrida anterior con cambios reversibles. Los
+                         journals viven en %ProgramData%, así que esto funciona entre sesiones:
+                         se puede volver al equipo la semana siguiente y revertir. -->
+                    <Button Style="{StaticResource ActionButton}" Command="{Binding OpenUndoCommand}"
+                            Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}">
+                        <StackPanel>
+                            <TextBlock Text="Deshacer la última reparación" FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{StaticResource WarningBrush}" />
+                            <TextBlock Text="{Binding UndoSummary}"
                                        Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,3,0,0" />
                         </StackPanel>
                     </Button>
@@ -398,6 +412,53 @@
 
                 <Button Grid.Row="2" Content="Volver al inicio" Command="{Binding BackCommand}"
                         Style="{StaticResource GhostButton}" Margin="0,14,0,0" />
+            </Grid>
+
+            <!-- ===== 7. Deshacer ===== -->
+            <Grid Grid.Row="1" Margin="20,4,20,20"
+                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Undo}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Margin="0,4,0,10">
+                    <TextBlock Text="Deshacer la última reparación"
+                               Style="{StaticResource TitleText}" FontSize="15" />
+                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,4,0,0"
+                               Text="Esto es lo que se va a revertir. Deshacer también modifica el equipo, así que revisá la lista antes de aplicarlo." />
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding UndoRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}" />
+
+                        <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource MutedText}"
+                                   FontSize="11.5" Margin="0,14,0,0"
+                                   Visibility="{Binding ProgressLabel, Converter={StaticResource EmptyVis}}" />
+
+                        <ProgressBar IsIndeterminate="True" Height="3" Margin="0,8,0,0"
+                                     Background="{StaticResource BorderBrush}"
+                                     Foreground="{StaticResource AccentBrush}" BorderThickness="0"
+                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+
+                        <Border Style="{StaticResource StatusPanel}"
+                                Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
+                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
+                                       FontSize="11.5" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
+                    <Button Content="Volver" Command="{Binding BackCommand}"
+                            Style="{StaticResource GhostButton}" Width="100"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
+                    <Button Content="Deshacer todo" Command="{Binding UndoCommand}"
+                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
+                </StackPanel>
             </Grid>
 
         </Grid>

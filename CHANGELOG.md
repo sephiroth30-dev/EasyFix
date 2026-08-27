@@ -17,6 +17,50 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.5.0] — 2026-08-27
+
+Se conecta el botón de deshacer. Antes el journal registraba todo y `UndoEngine` funcionaba, pero
+**no había forma de invocarlo desde la interfaz** — la red de seguridad existía y era inalcanzable.
+
+### Agregado
+
+- **Botón «Deshacer la última reparación»**, con pantalla de confirmación que lista qué se va a
+  revertir **antes** de tocar nada: deshacer también modifica el equipo.
+  - Aparece solo si hay una corrida anterior con cambios reversibles.
+  - **Funciona entre sesiones.** Los journals viven en `%ProgramData%`, así que se puede volver al
+    equipo la semana siguiente y revertir.
+  - Distingue lo que se revierte de lo que **no se puede recuperar**, y dice cuántos MB de archivos
+    borrados no vuelven.
+  - Informa si esa corrida tuvo punto de restauración o no: cambia la decisión del técnico.
+- **`JournalStore`**: encuentra y lee corridas anteriores. Una corrida solo con acciones
+  irreversibles **no se ofrece** para deshacer — ofrecerlo sería mentir. Una ya deshecha tampoco. Una
+  interrumpida por un crash **sí**, que es justo la que más probablemente haya que revertir.
+- Marcar una corrida como deshecha **agrega una línea al journal, no lo borra**: el journal es la
+  constancia de lo que se le hizo al equipo.
+
+### Corregido
+
+- **Chrome fallaba siempre con `INSTALLER_HASH_MISMATCH`.** El reintento de v0.4.1 se ejecutó y falló
+  igual, lo que confirma que no era una descarga cortada: el manifiesto de winget tiene un hash
+  desactualizado respecto del instalador que publica Google. Ahora se baja el **MSI empresarial
+  oficial** de `dl.google.com`, que se instala con `msiexec /qn`.
+
+### Confirmado de v0.4.1
+
+- **`winget error --output` funcionó: 163 códigos cargados** del winget del equipo. La tabla real
+  está en uso, no las constantes.
+- El mensaje de hash mismatch se muestra completo; ya no aparece «-» como detalle.
+- El reintento automático se ejecuta.
+
+### Todavía sin conectar
+
+`JunctionSafeCleaner` (15 tests), `StartupClassifier` (20 tests) y `ServiceConditionEvaluator`
+(15 tests) siguen escritos y probados pero sin ningún `IFix` que los use. No existe «Mejorar
+rendimiento»: los temporales nunca se limpian y los programas de inicio se detectan pero no se
+desactivan.
+
+---
+
 ## [0.4.1] — 2026-08-27
 
 Correcciones de dos logs de equipos distintos: un Latitude E5530 con Windows 10 y un Latitude 3410 con
