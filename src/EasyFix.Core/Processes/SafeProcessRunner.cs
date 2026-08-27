@@ -21,6 +21,10 @@ namespace EasyFix.Core.Processes;
 /// <para><b>Ruta absoluta.</b> Resolver por <c>PATH</c> permitiría que un <c>fsutil.exe</c> puesto en
 /// el directorio actual —en un equipo comprometido, que es justo el que estamos reparando— secuestre
 /// la llamada.</para>
+///
+/// <para><b>Directorio de trabajo fijo.</b> Se fija en <c>System32</c> en vez de heredarlo. Heredarlo
+/// hace que el comportamiento dependa de dónde estaba el <c>.exe</c> al lanzarse, que no debería
+/// influir en nada.</para>
 /// </remarks>
 public sealed class SafeProcessRunner : IProcessRunner
 {
@@ -69,6 +73,11 @@ public sealed class SafeProcessRunner : IProcessRunner
         {
             FileName = executablePath,
             UseShellExecute = false,      // nada de cmd.exe
+
+            // Directorio de trabajo explícito. Sin esto se hereda del lugar desde donde se lanzó el
+            // .exe — en la primera prueba real era la carpeta Descargas del usuario, que aparecía en
+            // el mensaje de un "Acceso denegado". Ningún proceso hijo debería depender de eso.
+            WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = false,

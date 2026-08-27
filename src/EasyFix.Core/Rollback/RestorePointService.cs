@@ -1,26 +1,25 @@
+using System.Globalization;
 using System.Management;
 using System.Runtime.Versioning;
+using EasyFix.Core.Configuration;
 using EasyFix.Core.Fixes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 
 namespace EasyFix.Core.Rollback;
 
 /// <summary>
-/// Crea puntos de restauración con WMI, y <b>verifica que hayan quedado creados</b>.
+/// Crea puntos de restauración y verifica que hayan quedado creados.
 /// </summary>
 /// <remarks>
-/// <para><b>Por qué hay que verificar y no alcanza con llamar.</b> Windows aplica un límite de
-/// frecuencia: si ya se creó un punto en las últimas 24 horas,
-/// <c>SystemRestore.CreateRestorePoint</c> devuelve éxito y <b>no crea nada</b>. Confiar en el código
-/// de retorno dejaría al técnico creyendo que tiene red de seguridad cuando no la tiene — que es
-/// exactamente el escenario en el que se pierde el equipo de un cliente.</para>
+/// <para>Ver <see cref="RestorePointPolicy"/> para el porqué de la verificación con espera: la API es
+/// asíncrona y la versión anterior daba falso negativo siempre.</para>
 ///
-/// <para>Por eso se cuenta la secuencia más alta antes y después, y solo se considera creado si
-/// aumentó.</para>
-///
-/// <para>Si Restaurar sistema está deshabilitado, se intenta habilitarlo una vez y se reintenta.
-/// Dejarlo habilitado es una mejora en sí misma: un equipo sin puntos de restauración no tiene
-/// vuelta atrás para nada.</para>
+/// <para><b>El límite de 24 h.</b> Windows no crea más de un punto por día salvo que se cambie
+/// <c>SystemRestorePointCreationFrequency</c>. En el equipo de un cliente que ya tuvo actividad ese
+/// día, eso hace que la herramienta no pueda crear su red de seguridad — que es exactamente lo que
+/// pasó en la primera prueba real. Se neutraliza, con tres condiciones: se informa el valor anterior
+/// para poder revertirlo, es configurable, y queda en el journal.</para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
 public sealed class RestorePointService : IRestorePointService
@@ -28,70 +27,158 @@ public sealed class RestorePointService : IRestorePointService
     private const string Namespace = @"root\default";
     private const string ClassName = "SystemRestore";
 
+    private const string ThrottleKeyPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore";
+    private const string ThrottleValueName = "SystemRestorePointCreationFrequency";
+
     /// <summary>MODIFY_SETTINGS: el tipo correcto para cambios de configuración.</summary>
     private const uint RestorePointTypeModifySettings = 12;
 
     /// <summary>BEGIN_SYSTEM_CHANGE.</summary>
     private const uint EventTypeBeginSystemChange = 100;
 
+    private readonly ThresholdOptions _thresholds;
+    private readonly TimeProvider _time;
     private readonly ILogger<RestorePointService> _logger;
 
-    public RestorePointService(ILogger<RestorePointService> logger)
+    public RestorePointService(
+        ThresholdOptions thresholds,
+        TimeProvider time,
+        ILogger<RestorePointService> logger)
     {
+        ArgumentNullException.ThrowIfNull(thresholds);
+        ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
+
+        _thresholds = thresholds;
+        _time = time;
         _logger = logger;
     }
 
-    public async Task<long?> CreateAsync(string description, CancellationToken ct)
+    public async Task<RestorePointResult> CreateAsync(string description, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
 
-        // Las APIs de WMI son bloqueantes: van a un hilo del pool para no congelar la interfaz.
-        return await Task.Run(() => CreateVerified(description), ct).ConfigureAwait(false);
-    }
+        // La lectura previa es una señal de respaldo, no un requisito: si falla, queda en null y la
+        // verificación se apoya en la fecha del punto más nuevo.
+        long? sequenceBefore = await Task.Run(ReadHighestSequence, ct).ConfigureAwait(false);
 
-    private long? CreateVerified(string description)
-    {
-        long before = HighestSequence();
+        bool throttleDisabled = false;
+        int? previousThrottle = null;
 
-        if (!TryCreate(description, out uint returnValue))
+        if (_thresholds.DisableRestorePointThrottle)
         {
-            _logger.LogWarning(
-                "CreateRestorePoint devolvió {Code}. Se intenta habilitar Restaurar sistema.", returnValue);
+            (throttleDisabled, previousThrottle) = await Task
+                .Run(TryDisableThrottle, ct)
+                .ConfigureAwait(false);
+        }
 
-            if (!TryEnable())
-            {
-                _logger.LogError("No se pudo habilitar Restaurar sistema.");
-                return null;
-            }
+        if (!await Task.Run(() => TryCreate(description), ct).ConfigureAwait(false))
+        {
+            // Puede ser que Restaurar sistema esté deshabilitado. Se intenta habilitarlo una vez:
+            // dejarlo habilitado es una mejora en sí misma, un equipo sin puntos no tiene vuelta atrás.
+            _logger.LogWarning("CreateRestorePoint falló. Se intenta habilitar Restaurar sistema.");
 
-            if (!TryCreate(description, out returnValue))
+            if (!await Task.Run(TryEnable, ct).ConfigureAwait(false) ||
+                !await Task.Run(() => TryCreate(description), ct).ConfigureAwait(false))
             {
-                _logger.LogError(
-                    "CreateRestorePoint falló otra vez con {Code} después de habilitar.", returnValue);
-                return null;
+                return new RestorePointResult(
+                    null, throttleDisabled, previousThrottle,
+                    "No se pudo crear el punto de restauración. Restaurar sistema puede estar " +
+                    "deshabilitado por directiva, o no haber espacio libre en C:.");
             }
         }
 
-        long after = HighestSequence();
+        // ---- Esperar a que aparezca ---------------------------------------------------------
+        DateTimeOffset deadline = _time.GetUtcNow() + RestorePointPolicy.PollTimeout;
+        int attempt = 0;
 
-        if (after <= before)
+        while (true)
         {
-            // Éxito reportado sin punto nuevo: es el límite de 24 horas. No se miente al técnico.
-            _logger.LogWarning(
-                "CreateRestorePoint reportó éxito pero la secuencia no aumentó ({Before} -> {After}). " +
-                "Probablemente el límite de frecuencia de 24 h.", before, after);
-            return null;
-        }
+            ct.ThrowIfCancellationRequested();
 
-        _logger.LogInformation("Punto de restauración creado y verificado: secuencia {Sequence}.", after);
-        return after;
+            RestorePointInfo? newest = await Task.Run(ReadNewest, ct).ConfigureAwait(false);
+            bool attemptsRemain = _time.GetUtcNow() < deadline;
+
+            RestorePointCheck verdict = RestorePointPolicy.Evaluate(
+                newest, sequenceBefore, _time.GetUtcNow(), attemptsRemain);
+
+            if (verdict == RestorePointCheck.Created)
+            {
+                _logger.LogInformation(
+                    "Punto de restauración verificado: secuencia {Sequence}, creado {Created}, " +
+                    "tras {Attempts} intento(s).",
+                    newest!.Sequence, newest.CreatedUtc, attempt + 1);
+
+                return new RestorePointResult(newest.Sequence, throttleDisabled, previousThrottle);
+            }
+
+            if (verdict == RestorePointCheck.CannotVerify)
+            {
+                _logger.LogWarning(
+                    "No se pudo verificar el punto de restauración tras {Seconds} s y {Attempts} " +
+                    "intento(s). Secuencia previa: {Before}. Más nuevo leído: {Newest}.",
+                    RestorePointPolicy.PollTimeout.TotalSeconds, attempt + 1,
+                    sequenceBefore, newest?.Sequence);
+
+                return new RestorePointResult(
+                    null, throttleDisabled, previousThrottle,
+                    $"Se pidió el punto de restauración pero no apareció en " +
+                    $"{RestorePointPolicy.PollTimeout.TotalSeconds:0} segundos. Puede que el servicio " +
+                    "de instantáneas de volumen (VSS) esté detenido o sin espacio.");
+            }
+
+            attempt++;
+            await Task.Delay(RestorePointPolicy.PollInterval, ct).ConfigureAwait(false);
+        }
     }
 
-    private bool TryCreate(string description, out uint returnValue)
-    {
-        returnValue = uint.MaxValue;
+    // ---- Límite de frecuencia ---------------------------------------------------------------
 
+    /// <summary>
+    /// Pone el límite de creación en 0. Devuelve si lo cambió y cuál era el valor anterior.
+    /// </summary>
+    private (bool Changed, int? Previous) TryDisableThrottle()
+    {
+        try
+        {
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(ThrottleKeyPath, writable: true)
+                                    ?? Registry.LocalMachine.CreateSubKey(ThrottleKeyPath);
+
+            if (key is null)
+            {
+                _logger.LogWarning("No se pudo abrir {Key} para quitar el límite de frecuencia.", ThrottleKeyPath);
+                return (false, null);
+            }
+
+            object? current = key.GetValue(ThrottleValueName);
+            int? previous = current is int value ? value : null;
+
+            // Ya está en 0: no hay nada que cambiar ni que revertir después.
+            if (previous == 0)
+            {
+                return (false, 0);
+            }
+
+            key.SetValue(ThrottleValueName, 0, RegistryValueKind.DWord);
+
+            _logger.LogInformation(
+                "Límite de frecuencia de puntos de restauración puesto en 0 (antes: {Previous}). " +
+                "Se revierte con «Deshacer todo».",
+                previous?.ToString(CultureInfo.InvariantCulture) ?? "sin definir");
+
+            return (true, previous);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _logger.LogWarning(ex, "Sin permisos para quitar el límite de frecuencia.");
+            return (false, null);
+        }
+    }
+
+    // ---- WMI --------------------------------------------------------------------------------
+
+    private bool TryCreate(string description)
+    {
         try
         {
             using var systemRestore = new ManagementClass(
@@ -105,8 +192,15 @@ public sealed class RestorePointService : IRestorePointService
             using ManagementBaseObject result =
                 systemRestore.InvokeMethod("CreateRestorePoint", parameters, null);
 
-            returnValue = Convert.ToUInt32(result["ReturnValue"], System.Globalization.CultureInfo.InvariantCulture);
-            return returnValue == 0;
+            uint code = Convert.ToUInt32(result["ReturnValue"], CultureInfo.InvariantCulture);
+
+            if (code != 0)
+            {
+                _logger.LogWarning("CreateRestorePoint devolvió {Code}.", code);
+                return false;
+            }
+
+            return true;
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException)
         {
@@ -130,7 +224,7 @@ public sealed class RestorePointService : IRestorePointService
 
             using ManagementBaseObject result = systemRestore.InvokeMethod("Enable", parameters, null);
 
-            uint code = Convert.ToUInt32(result["ReturnValue"], System.Globalization.CultureInfo.InvariantCulture);
+            uint code = Convert.ToUInt32(result["ReturnValue"], CultureInfo.InvariantCulture);
             if (code == 0)
             {
                 _logger.LogInformation("Restaurar sistema habilitado en {Drive}.", systemDrive);
@@ -147,44 +241,58 @@ public sealed class RestorePointService : IRestorePointService
         }
     }
 
-    /// <summary>Secuencia más alta entre los puntos existentes, o 0 si no hay ninguno.</summary>
-    private long HighestSequence()
+    /// <summary>
+    /// Punto más nuevo por secuencia. <c>null</c> si la consulta falló.
+    /// </summary>
+    /// <remarks>
+    /// <b>Distinguir "no hay" de "no pude leer" es el punto.</b> La versión anterior devolvía 0 en
+    /// los dos casos, y 0 se interpretaba como "no hay ninguno". En la prueba real una consulta falló
+    /// y veinte segundos después devolvía 213: un fallo de lectura se estaba tratando como un hecho.
+    /// </remarks>
+    private RestorePointInfo? ReadNewest()
     {
         try
         {
             using var searcher = new ManagementObjectSearcher(
                 new ManagementScope(Namespace),
-                new ObjectQuery($"SELECT SequenceNumber FROM {ClassName}"));
+                new ObjectQuery($"SELECT SequenceNumber, CreationTime, Description FROM {ClassName}"));
 
-            long highest = 0;
+            RestorePointInfo? newest = null;
             using ManagementObjectCollection results = searcher.Get();
 
             foreach (ManagementBaseObject item in results)
             {
-                try
+                using (item)
                 {
-                    long sequence = Convert.ToInt64(
-                        item["SequenceNumber"], System.Globalization.CultureInfo.InvariantCulture);
-                    highest = Math.Max(highest, sequence);
-                }
-                catch (Exception ex) when (ex is ManagementException or InvalidCastException or FormatException)
-                {
-                    // Un punto ilegible no invalida el resto.
-                }
-                finally
-                {
-                    item.Dispose();
+                    try
+                    {
+                        long sequence = Convert.ToInt64(item["SequenceNumber"], CultureInfo.InvariantCulture);
+
+                        if (newest is null || sequence > newest.Sequence)
+                        {
+                            newest = new RestorePointInfo(
+                                sequence,
+                                RestorePointPolicy.ParseWmiDate(item["CreationTime"]?.ToString()),
+                                item["Description"]?.ToString());
+                        }
+                    }
+                    catch (Exception ex) when (ex is ManagementException or InvalidCastException or FormatException)
+                    {
+                        // Un punto ilegible no invalida los demás.
+                    }
                 }
             }
 
-            return highest;
+            return newest;
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "No se pudieron enumerar los puntos de restauración.");
-            return 0;
+            return null;   // null = no pude leer. NO es lo mismo que "no hay".
         }
     }
+
+    private long? ReadHighestSequence() => ReadNewest()?.Sequence;
 }
 
 /// <summary>
@@ -244,8 +352,7 @@ public sealed class BitLockerService : IBitLockerService
                     using ManagementBaseObject result =
                         volume.InvokeMethod("DisableKeyProtectors", parameters, null);
 
-                    uint code = Convert.ToUInt32(
-                        result["ReturnValue"], System.Globalization.CultureInfo.InvariantCulture);
+                    uint code = Convert.ToUInt32(result["ReturnValue"], CultureInfo.InvariantCulture);
 
                     if (code == 0)
                     {

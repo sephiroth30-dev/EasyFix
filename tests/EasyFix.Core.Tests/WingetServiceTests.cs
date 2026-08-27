@@ -22,7 +22,19 @@ public sealed class WingetServiceTests
         public FakeRunner(Func<IReadOnlyList<string>, ProcessResult>? respond = null) =>
             _respond = respond ?? (_ => new ProcessResult(0, "Successfully installed", "", false, TimeSpan.Zero));
 
+        /// <summary>La tabla de códigos no existe en el fake: se responde como comando no soportado.</summary>
+        private static bool IsErrorTableQuery(IReadOnlyList<string> args) =>
+            args.Count > 0 && args[0] == "error";
+
         public List<(string Exe, IReadOnlyList<string> Args)> Calls { get; } = new();
+
+        /// <summary>
+        /// Solo las invocaciones de instalación. El servicio también corre «winget error --output»
+        /// una vez por tanda para cargar la tabla de códigos del equipo, y «source reset» cuando el
+        /// catálogo está roto: esas no son instalaciones.
+        /// </summary>
+        public List<(string Exe, IReadOnlyList<string> Args)> InstallCalls =>
+            Calls.Where(c => c.Args.Count > 0 && c.Args[0] == "install").ToList();
 
         /// <summary>Cuántas invocaciones hay en vuelo a la vez. Debe ser siempre 1.</summary>
         public int MaxConcurrent { get; private set; }
@@ -36,6 +48,12 @@ public sealed class WingetServiceTests
             CancellationToken ct = default)
         {
             Calls.Add((executablePath, arguments));
+
+            if (IsErrorTableQuery(arguments))
+            {
+                // Se simula una versión de winget sin el comando: el servicio cae en las constantes.
+                return new ProcessResult(1, "", "Unknown command", false, TimeSpan.Zero);
+            }
 
             int now = Interlocked.Increment(ref _current);
             MaxConcurrent = Math.Max(MaxConcurrent, now);
@@ -85,7 +103,7 @@ public sealed class WingetServiceTests
 
         await Build(runner).InstallAsync(new[] { Package("RustDesk.RustDesk", "RustDesk") });
 
-        (string exe, IReadOnlyList<string> args) = Assert.Single(runner.Calls);
+        (string exe, IReadOnlyList<string> args) = Assert.Single(runner.InstallCalls);
 
         Assert.Equal(WingetPath, exe);
         Assert.Equal(
@@ -109,7 +127,7 @@ public sealed class WingetServiceTests
         var runner = new FakeRunner();
         await Build(runner).InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
 
-        Assert.Contains("--exact", runner.Calls[0].Args);
+        Assert.Contains("--exact", runner.InstallCalls[0].Args);
     }
 
     [Fact]
@@ -118,7 +136,7 @@ public sealed class WingetServiceTests
         var runner = new FakeRunner();
         await Build(runner).InstallAsync(new[] { Package("Google.Chrome", "Chrome") });
 
-        IReadOnlyList<string> args = runner.Calls[0].Args;
+        IReadOnlyList<string> args = runner.InstallCalls[0].Args;
         int i = args.ToList().IndexOf("--source");
         Assert.True(i >= 0);
         Assert.Equal("winget", args[i + 1]);
@@ -130,7 +148,7 @@ public sealed class WingetServiceTests
         var runner = new FakeRunner();
         await Build(runner).InstallAsync(new[] { Package("Google.Chrome", "Chrome") });
 
-        Assert.Contains("--disable-interactivity", runner.Calls[0].Args);
+        Assert.Contains("--disable-interactivity", runner.InstallCalls[0].Args);
     }
 
     // ---- En serie, nunca en paralelo --------------------------------------------------------
@@ -151,7 +169,7 @@ public sealed class WingetServiceTests
 
         await Build(runner).InstallAsync(packages);
 
-        Assert.Equal(3, runner.Calls.Count);
+        Assert.Equal(3, runner.InstallCalls.Count);
         Assert.Equal(1, runner.MaxConcurrent);
     }
 
@@ -169,7 +187,7 @@ public sealed class WingetServiceTests
 
         Assert.Equal(
             new[] { "A.A", "B.B", "C.C" },
-            runner.Calls.Select(c => c.Args[c.Args.ToList().IndexOf("--id") + 1]));
+            runner.InstallCalls.Select(c => c.Args[c.Args.ToList().IndexOf("--id") + 1]));
     }
 
     // ---- Resultados ------------------------------------------------------------------------
@@ -243,7 +261,7 @@ public sealed class WingetServiceTests
 
         Assert.Equal(2, results.Count);
         Assert.All(results, r => Assert.Equal(WingetOutcome.WingetMissing, r.Outcome));
-        Assert.Empty(runner.Calls);
+        Assert.Empty(runner.InstallCalls);
     }
 
     [Fact]
@@ -259,7 +277,7 @@ public sealed class WingetServiceTests
         WingetResult result = Assert.Single(results);
         Assert.Equal(WingetOutcome.Failed, result.Outcome);
         Assert.Contains("no es válido", result.Detail, StringComparison.Ordinal);
-        Assert.Empty(runner.Calls);
+        Assert.Empty(runner.InstallCalls);
     }
 
     [Fact]
@@ -278,7 +296,7 @@ public sealed class WingetServiceTests
         Assert.Equal(WingetOutcome.Installed, results[0].Outcome);
         Assert.Equal(WingetOutcome.Failed, results[1].Outcome);
         Assert.Equal(WingetOutcome.Installed, results[2].Outcome);
-        Assert.Equal(2, runner.Calls.Count); // el inválido no llegó a ejecutarse
+        Assert.Equal(2, runner.InstallCalls.Count); // el inválido no llegó a ejecutarse
     }
 
     // ---- Progreso y cancelación -------------------------------------------------------------
@@ -325,7 +343,7 @@ public sealed class WingetServiceTests
         IReadOnlyList<WingetResult> results = await Build(runner).InstallAsync(Array.Empty<WingetPackage>());
 
         Assert.Empty(results);
-        Assert.Empty(runner.Calls);
+        Assert.Empty(runner.InstallCalls);
     }
 
     // ---- Configuración real -----------------------------------------------------------------

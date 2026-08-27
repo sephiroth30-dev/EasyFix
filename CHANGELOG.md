@@ -17,6 +17,68 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.4.0] — 2026-08-27
+
+Correcciones salidas del log de la primera prueba real. **La mayor parte de v0.3.0 funcionaba**; lo
+que estaba mal era el reporte: la app decía «falló» donde había éxito.
+
+### Corregido
+
+- **El punto de restauración se creaba y la app decía que no.** `SRSetRestorePoint` es asíncrona: el
+  punto no aparece en WMI hasta unos segundos después. La verificación anterior enumeraba al instante
+  y perdía la carrera siempre — cinco falsos negativos en cinco corridas, mientras las secuencias
+  avanzaban 210 → 213 → 214. Ahora se sondea hasta 60 s y la señal principal es la **fecha** del punto
+  más nuevo, no la secuencia.
+- **`HighestSequence()` devolvía 0 tanto si no había puntos como si la consulta fallaba**, y 0 se
+  interpretaba como «no hay». Un fallo de lectura se estaba tratando como un hecho. Ahora distingue
+  «no hay» de «no pude leer».
+- **Límite de 24 h de Windows.** Impedía crear el punto en cualquier equipo con actividad ese día. Se
+  neutraliza vía `SystemRestorePointCreationFrequency`, registrando el valor anterior en el journal.
+  Configurable con `Thresholds.DisableRestorePointThrottle`.
+- **Dos constantes de código de salida de winget estaban mal**, y produjeron los fallos falsos:
+  `0x8A15002B` es `UPDATE_NOT_APPLICABLE` (no `NO_APPLICATIONS_FOUND`) y `0x8A150014` es
+  `NO_APPLICATIONS_FOUND` (no un error de fuentes). **`UPDATE_NOT_APPLICABLE` sobre un `install`
+  significa «ya está instalado»** — por eso 7-Zip y Visual C++ Redistributable aparecían como «no
+  encontrado» después de que la propia app los instalara.
+- **«Acceso denegado» a mitad de la tanda.** winget se autoactualiza y la carpeta de su paquete cambia
+  de nombre: en la prueba pasó de `_1.29.280.0` a `_1.29.290.0`. La ruta se resolvía una vez por tanda.
+  Ahora se resuelve antes de cada paquete, con reintento ante `Win32Exception` 5 o 2.
+- **VLC devolvía 1 arrancando en el mismo segundo que terminó VCRedist.** Se espera a que el mutex
+  `_MSIExecute` de Windows Installer esté libre: instalar en serie no alcanza si el anterior sigue
+  finalizando.
+- **DISM detectaba corrupción comparando texto en inglés** contra un Windows en español, así que
+  `RestoreHealth` corría siempre: ~4 min perdidos por corrida. Se pasa `/English`.
+- **`net stop` con código 2 se reportaba como advertencia.** Significa que el servicio ya estaba
+  detenido, que es el caso normal.
+- **`netsh int ip reset` devuelve 1 con frecuencia aunque funcione.** Ya no se cuenta como fallo salvo
+  que winsock también falle.
+- **El directorio de trabajo de los procesos hijos se heredaba** de donde se lanzó el `.exe`. Ahora se
+  fija en `System32`.
+
+### Agregado
+
+- **Tabla de códigos leída del propio winget** con `winget error --output`. El mapeo lo provee el
+  winget instalado en vez de constantes que ya estuvieron mal una vez.
+- **El log registra el diagnóstico completo**: cada campo medido y cada hallazgo. Antes solo hablaba
+  de fallos, así que no servía para confirmar que el análisis funcionó — y eso era justo lo que
+  faltaba verificar.
+- **Los primeros `IUndoHandler` concretos**: valor de registro, borrado de valor y reactivación de
+  BitLocker. Antes el journal registraba pasos que nadie podía ejecutar.
+
+### Estado de las pruebas
+
+| Componente | Estado |
+|---|---|
+| Reparaciones (DISM, sfc, chkdsk, WU, red) | ✅ ejecutadas y aplicadas en equipo real |
+| `WingetLocator` y instalación con winget | ✅ ejecutados; los fallos eran de reporte |
+| Descarga directa desde GitHub | ⚠️ resolvió y descargó; falta el desenlace del instalador |
+| `RestorePointService` | ⚠️ se ejecutó; su corrección **sin reprobar** |
+| Diagnóstico completo | ❌ **sin verificar** — el log no lo registraba. Ahora sí |
+| `BitLockerService` | ❌ el equipo de prueba no tenía BitLocker |
+| Análisis de pantallazos | ❌ **sin ejecutar** contra un equipo con pantallazos |
+
+---
+
 ## [0.3.0] — 2026-08-25
 
 Primera versión que **corrige**, no solo diagnostica. Y la primera que se corrigió a partir de una

@@ -213,7 +213,7 @@ public sealed class WingetResultParserTests
     public void CodigoDeYaInstalado_NoEsUnFallo()
     {
         WingetResult result = WingetResultParser.Parse(
-            "7zip.7zip", Result(WingetResultParser.PackageAlreadyInstalled));
+            "7zip.7zip", Result(WingetErrorCodes.PackageAlreadyInstalled));
 
         Assert.Equal(WingetOutcome.AlreadyInstalled, result.Outcome);
         Assert.True(result.PackageAvailable);
@@ -222,19 +222,74 @@ public sealed class WingetResultParserTests
     [Fact]
     public void PaqueteNoEncontrado_LoDiceYApuntaAlAppSettings()
     {
+        // 0x8A150014 verificado en la prueba real: RustDesk, removido del catálogo de winget.
         WingetResult result = WingetResultParser.Parse(
-            "Vendor.Renamed", Result(WingetResultParser.NoApplicationsFound));
+            "Vendor.Renamed", Result(WingetErrorCodes.NoApplicationsFound));
 
-        Assert.Equal(WingetOutcome.NotFound, result.Outcome);
+        Assert.Equal(WingetOutcome.NotInCatalog, result.Outcome);
         Assert.False(result.PackageAvailable);
         Assert.Contains("appsettings.json", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UpdateNotApplicable_EsYaInstalado_NoUnFallo()
+    {
+        // El bug más costoso de la primera prueba: 0x8A15002B sobre un install significa que el
+        // paquete ya está en su última versión. Se reportaba como "no encontrado", así que 7-Zip y
+        // Visual C++ Redistributable —que la propia app había instalado dos horas antes— aparecían
+        // en rojo.
+        WingetResult result = WingetResultParser.Parse(
+            "7zip.7zip", Result(WingetErrorCodes.UpdateNotApplicable));
+
+        Assert.Equal(WingetOutcome.AlreadyInstalled, result.Outcome);
+        Assert.True(result.PackageAvailable);
+    }
+
+    [Theory]
+    [InlineData(0x8A15000F)]   // SOURCE_DATA_MISSING: el caso de la sesión elevada
+    [InlineData(0x8A150019)]   // FAILED_TO_OPEN_ALL_SOURCES
+    public void ProblemasDeCatalogo_SeDistinguenYExplicanLaCausa(long code)
+    {
+        WingetResult result = WingetResultParser.Parse("Any.Package", Result(unchecked((int)code)));
+
+        Assert.Equal(WingetOutcome.SourceUnavailable, result.Outcome);
+        Assert.Contains("administrador", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConLaTablaDeWinget_ElDetalleTraeElSimboloOficial()
+    {
+        // Cargar la tabla del winget instalado hace que el detalle no dependa de constantes nuestras.
+        WingetErrorTable table = WingetErrorTable.Parse(
+            "0x8A150099  APPINSTALLER_CLI_ERROR_SOMETHING_ODD  Algo raro pasó");
+
+        WingetResult result = WingetResultParser.Parse(
+            "X.Y", Result(unchecked((int)0x8A150099)), table);
+
+        Assert.Equal(WingetOutcome.Failed, result.Outcome);
+        Assert.Contains("APPINSTALLER_CLI_ERROR_SOMETHING_ODD", result.Detail, StringComparison.Ordinal);
+        Assert.Contains("Algo raro pasó", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TablaDeWinget_ToleraCambiosDeFormato()
+    {
+        // El formato de "winget error --output" puede cambiar entre versiones: se busca el hexadecimal
+        // y el símbolo en cualquier posición, en vez de asumir columnas.
+        WingetErrorTable table = WingetErrorTable.Parse(
+            "| APPINSTALLER_CLI_ERROR_TEST | 0x8A150001 | Descripción al final |\n" +
+            "basura sin código\n" +
+            "0x8A150002   APPINSTALLER_CLI_ERROR_OTRO   Otra cosa");
+
+        Assert.Equal(2, table.Count);
+        Assert.Equal("APPINSTALLER_CLI_ERROR_OTRO", table.SymbolFor(unchecked((int)0x8A150002)));
     }
 
     [Fact]
     public void SinInstaladorCompatible_SeDistingueDeUnFalloGenerico()
     {
         WingetResult result = WingetResultParser.Parse(
-            "Some.Package", Result(WingetResultParser.NoApplicableInstaller));
+            "Some.Package", Result(WingetErrorCodes.NoApplicableInstaller));
 
         Assert.Equal(WingetOutcome.NoApplicableInstaller, result.Outcome);
         Assert.Contains("arquitectura", result.Detail, StringComparison.Ordinal);
@@ -291,8 +346,8 @@ public sealed class WingetResultParserTests
         {
             WingetResultParser.Parse("A", Result(0, "Successfully installed")),
             WingetResultParser.Parse("B", Result(0, "Successfully installed")),
-            WingetResultParser.Parse("C", Result(WingetResultParser.PackageAlreadyInstalled)),
-            WingetResultParser.Parse("D", Result(WingetResultParser.NoApplicationsFound)),
+            WingetResultParser.Parse("C", Result(WingetErrorCodes.PackageAlreadyInstalled)),
+            WingetResultParser.Parse("D", Result(WingetErrorCodes.NoApplicationsFound)),
         };
 
         string summary = WingetResultParser.Summarize(results);

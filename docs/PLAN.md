@@ -3,9 +3,226 @@
 > **Este es el documento de trabajo del proyecto.** Estado actual, decisiones tomadas y qué sigue.
 > Versionado con el código, así que viaja con el repo. El `README.md` es el resumen para quien llega
 > nuevo; esto es el detalle para seguir trabajando.
->
-> Al retomar, leer en este orden: **Estado actual** → **Fases de implementación** (sección
-> «Pendiente») → la sección del componente que se vaya a tocar.
+
+> Al retomar, leer en este orden: **v0.4.0 — Plan activo** → **Estado actual** → la sección del
+> componente que se vaya a tocar.
+
+## v0.4.0 — Plan activo: hacer que funcione
+
+### Context
+
+Se probó v0.3.0 en un equipo real (log del 2026-08-25, 96 líneas). La lectura inicial fue «todo
+error», pero el log dice algo distinto y mucho más útil: **la mayor parte funcionó**, y los fallos
+tienen cuatro causas concretas, todas identificadas con evidencia.
+
+Lo grave no es que fallara: es que **la app reportó fallo donde hubo éxito**. Dos programas que ya
+estaban instalados se reportaron como «no encontrado», y el punto de restauración que sí se creaba se
+reportaba como no creado — lo que llevó al usuario a trabajar sin red de seguridad cuando la red
+existía. Un diagnóstico que miente es peor que uno que falta.
+
+### Lo que el log prueba que YA FUNCIONA
+
+No hay que tocar nada de esto:
+
+| Componente | Evidencia en el log |
+|---|---|
+| `WingetLocator` bajo `Program Files\WindowsApps` | líneas 6, 26, 85 — lo encontró siempre |
+| Instalación con winget | líneas 9, 12 — 7-Zip y VCRedist instalados, código 0 |
+| Descarga directa desde GitHub | líneas 94-96 — resolvió RustDesk 1.4.9, bajó el asset, lanzó el instalador |
+| Override del punto de restauración | líneas 36, 61 — continuó por decisión explícita |
+| `SystemFileRepairFix` (DISM + sfc) | líneas 37-40 — reparó de verdad, 10 min |
+| `DiskCheckFix` | línea 42 — `NothingToDo`, sin errores |
+| `WindowsUpdateResetFix` | línea 54 — reconstruyó `SoftwareDistribution` y `catroot2` |
+| `NetworkStackResetFix` | línea 59 — aplicado, pide reinicio |
+| Journal y logging | el log entero es legible y suficiente para diagnosticar |
+
+### Los cuatro fallos, con su causa
+
+**F1 · El punto de restauración se reportaba como no creado, y sí se creaba.** (P0)
+
+Líneas 2, 4, 33, 35, 60: *«reportó éxito pero la secuencia no aumentó (210 → 210)»*. Pero entre
+corridas la secuencia avanzó **210 → 213 → 214**: los puntos se estaban creando.
+
+Causa: `SRSetRestorePoint` —la API detrás de `CreateRestorePoint`— es **asíncrona**. Cuando
+`RestorePointService.CreateVerified` enumera inmediatamente después, el punto nuevo todavía no
+aparece. La verificación es una carrera que casi siempre pierde.
+
+Segundo defecto en la misma función: la línea 33 muestra `(0 → 0)`, y veinte segundos después la
+enumeración devolvió 213. `HighestSequence()` devuelve `0` tanto cuando no hay puntos como cuando la
+consulta falla, y `0` se interpreta como «no hay». Un fallo de lectura se está tratando como un hecho.
+
+**F2 · Constantes de código de salida de winget equivocadas → fallos falsos.** (P0)
+
+Verificado contra la documentación de winget-cli:
+
+| Código | Lo que yo tenía | Lo que es de verdad |
+|---|---|---|
+| `0x8A15002B` | `NO_APPLICATIONS_FOUND` | **`UPDATE_NOT_APPLICABLE`** |
+| `0x8A150014` | `FAILED_TO_OPEN_ALL_SOURCES` | **`NO_APPLICATIONS_FOUND`** |
+
+Consecuencia en el log: a las 13:56, 7-Zip y VCRedist devolvieron `0x8A15002B` y se reportaron como
+«NotFound» (líneas 89, 93). Pero la propia app los había instalado a las 11:58. `UPDATE_NOT_APPLICABLE`
+sobre un paquete instalado significa **«ya está y no hay nada que actualizar»** — o sea, éxito.
+
+Y `0x8A150014` en RustDesk (línea 31) era el diagnóstico correcto —el ID ya no existe en el catálogo—
+pero etiquetado como problema de fuentes.
+
+**Descubrimiento que evita que esto vuelva a pasar:** `winget error --output <archivo>` exporta la
+tabla completa de códigos del winget instalado en el equipo. Se puede leer en runtime en vez de
+hardcodear constantes que pueden estar mal.
+
+**F3 · «Acceso denegado» al lanzar winget a mitad de la tanda.** (P1)
+
+Líneas 19-25: `Win32Exception (5)` al arrancar `winget.exe`, después de que dos instalaciones
+funcionaran con ese mismo binario.
+
+Causa, visible en el log: la ruta **cambió entre corridas**, de
+`Microsoft.DesktopAppInstaller_1.29.280.0` (línea 6) a `_1.29.290.0` (línea 26). winget se
+autoactualizó y la carpeta del paquete viejo dejó de existir. La ruta se resuelve una vez por tanda y
+después se usa una que ya no es válida.
+
+El mensaje también revela que el directorio de trabajo heredado era `C:\Users\Andres\Downloads`, que
+no se está fijando explícitamente.
+
+**F4 · VLC devolvió 1 justo después de VCRedist.** (P1)
+
+Líneas 13-16: VLC arrancó a las 11:58:59, exactamente cuando VCRedist terminó, y falló con código 1.
+El stderr vino vacío y stdout mostraba *«Encontrado VLC media player [VideoLAN.VLC] Versión 3.0.23»* —
+o sea, winget encontró el paquete y el instalador falló.
+
+Sospecha principal: contención del mutex `_MSIExecute` de Windows Installer. La instalación es serial,
+pero «serial» no alcanza: el instalador anterior puede seguir finalizando cuando arranca el siguiente.
+
+### Defectos secundarios que el log también expone
+
+**F5 · Detección de corrupción de DISM dependiente del idioma.** (P2) Líneas 37-38: dos llamadas a
+DISM, o sea que `RestoreHealth` corrió aunque `ScanHealth` probablemente no encontró daño. La detección
+compara texto en inglés contra un Windows en español. Cuesta ~4 minutos por corrida. Se arregla
+pasando `/English` a DISM, que fuerza salida determinista.
+
+**F6 · `net stop bits` código 2 tratado como advertencia.** (P2) Línea 45: *«El servicio BITS no se ha
+iniciado»*. Es el caso normal —el servicio ya estaba detenido— y ensucia el log.
+
+**F7 · `netsh int ip reset` devuelve 1.** (P2) Líneas 57, 82. Habitualmente benigno, pero hoy se
+registra como advertencia sin distinguirlo de un fallo real.
+
+**F8 · Sin resultado de RustDesk.** (P2) El log termina en la línea 96 con el instalador lanzado y
+nunca registra el desenlace. Hay que confirmar que `--silent-install` es el flag correcto de RustDesk
+1.4.9 y capturar el resultado.
+
+**F9 · Reparación repetida sin memoria.** (P2) Se corrió el mismo ciclo DISM+sfc dos veces (13:06 y
+13:18): veinte minutos repetidos. La app debería avisar que ya se hizo hace poco.
+
+**F10 · El log no registra qué diagnosticó.** (P1, observabilidad) No hay ninguna línea del
+diagnóstico: `SystemProbe` solo escribe cuando algo falla. No se puede saber si el análisis corrió ni
+qué midió. **Nivel 1 de `docs/PRUEBAS.md` sigue sin verificarse**, y el log no ayuda a saberlo.
+
+---
+
+### Los arreglos
+
+Todo lo que sigue es lógica pura o cambios acotados. Nada requiere rediseño.
+
+#### P0 · `RestorePointService` — verificación con espera
+
+`src/EasyFix.Core/Rollback/RestorePointService.cs`
+
+1. **Distinguir «no hay puntos» de «no pude leer».** `HighestSequence()` pasa a devolver `long?`:
+   `null` cuando la consulta falla, `0` cuando genuinamente no hay ninguno. Un `null` en la lectura
+   *previa* no impide continuar; un `null` en la *posterior* no se interpreta como fracaso.
+2. **Esperar a que aparezca.** Después de `CreateRestorePoint`, sondear la secuencia con reintentos
+   —cada 2 s hasta 60 s— y considerarlo creado en cuanto supere el valor previo. La API es asíncrona:
+   esto no es un parche, es cómo hay que consumirla.
+3. **Neutralizar el límite de 24 h.** Es un caso real y frecuente: cualquier equipo que ya tuvo
+   actividad ese día. Poner `SystemRestorePointCreationFrequency = 0` en
+   `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore`.
+
+   Es la única parte del plan que **modifica una configuración del sistema** para que la herramienta
+   funcione, así que va con tres condiciones: se registra en el journal **con su valor anterior**,
+   `Deshacer todo` lo revierte, y queda **configurable en `appsettings.json`**
+   (`Thresholds.DisableRestorePointThrottle`, por defecto `true`) para poder apagarlo sin recompilar.
+
+   El costo real es más espacio en copias de sombra, acotado por el límite que ya tiene configurado
+   Restaurar sistema. El beneficio es que el punto de restauración deja de ser una lotería, que es
+   justamente lo que hizo falta apagar en la primera prueba.
+4. Si después de todo eso no hay punto, recién ahí ofrecer el override que ya existe.
+
+#### P0 · Códigos de winget — tabla real, no constantes adivinadas
+
+`src/EasyFix.Core/Apps/WingetResultParser.cs`, `WingetService.cs`
+
+1. Corregir las dos constantes equivocadas y agregar `UPDATE_NOT_APPLICABLE`.
+2. **`UPDATE_NOT_APPLICABLE` sobre un `install` → `AlreadyInstalled`**, no fallo. Es el arreglo que
+   convierte dos fallos falsos en dos éxitos correctos.
+3. **Cargar la tabla desde el propio winget** con `winget error --output <archivo>` la primera vez que
+   se usa, y cachearla por corrida. Las constantes quedan como respaldo si el comando no existe en esa
+   versión. Así el mapeo lo provee el winget instalado y no mi memoria.
+4. Nuevo `WingetOutcome.NotInCatalog` para `NO_APPLICATIONS_FOUND`, con el mensaje que apunta a
+   revisar el ID en `appsettings.json` — que es lo que efectivamente pasó con RustDesk.
+
+#### P1 · Invocación de winget resistente a la autoactualización
+
+`src/EasyFix.Core/Apps/WingetLocator.cs`, `WingetService.cs`, `Processes/SafeProcessRunner.cs`
+
+1. **Resolver la ruta antes de cada invocación**, no una vez por tanda.
+2. **Reintentar una vez** ante `Win32Exception` con código 5 (acceso denegado) o 2 (no encontrado),
+   re-resolviendo primero. Es exactamente el escenario del log.
+3. **Fijar `WorkingDirectory` explícito** a `System32` en `SafeProcessRunner`. Hoy se hereda de donde
+   se lanzó el `.exe` —`Downloads` en la prueba—, y eso no debería influir en nada.
+
+#### P1 · Espera del mutex de Windows Installer
+
+`src/EasyFix.Core/Apps/WingetService.cs`
+
+Antes de cada instalación, esperar a que el mutex global `_MSIExecute` esté libre, con tope de unos
+minutos. Si sigue tomado, reintentar una vez tras una pausa antes de declarar fallo. Es la explicación
+más probable del código 1 de VLC, y es barato de implementar contra `Mutex.OpenExisting`.
+
+#### P1 · Que el log registre el diagnóstico
+
+`src/EasyFix.Core/Diagnostics/SystemProbe.cs`, `App/ViewModels/MainViewModel.cs`
+
+Loguear en `Information` el `SystemSnapshot` completo y cada hallazgo del reporte. Hoy el log solo
+habla cuando algo falla, así que **no sirve para confirmar que el diagnóstico funcionó** — que es
+justamente lo que falta verificar. Sin esto, cada prueba necesita capturas de pantalla.
+
+#### P2 · El resto
+
+| # | Arreglo | Archivo |
+|---|---|---|
+| F5 | Pasar `/English` a DISM y ajustar la detección de corrupción | `Fixes/RepairFixes.cs` |
+| F6 | `net stop` con código 2 = servicio ya detenido = OK | `Fixes/RepairFixes.cs` |
+| F7 | Distinguir el código 1 benigno de `netsh int ip reset` | `Fixes/RepairFixes.cs` |
+| F8 | Verificar el flag silencioso de RustDesk y registrar el desenlace | `appsettings.json`, `Apps/DirectDownloadInstaller.cs` |
+| F9 | Recordar la última reparación y avisar si fue hace menos de 30 min | `Rollback/`, `MainViewModel` |
+
+### Verificación
+
+**Tests nuevos, todos sin Windows** (la lógica está aislada a propósito):
+
+- `RestorePointService`: no se puede testear sin WMI, pero **sí la política**. Se extrae la decisión
+  «¿está creado?» a una función pura sobre `(secuenciaAntes, secuenciaDespués, intentos)` y se testea:
+  aparece al tercer intento → creado · nunca aparece → no creado · lectura previa fallida → no
+  bloquea · lectura posterior fallida → no cuenta como fracaso.
+- `WingetResultParser`: los tres códigos reales del log — `0x8A15002B` → `AlreadyInstalled`,
+  `0x8A150014` → `NotInCatalog`, `1` con stdout de VLC → fallo del instalador. Y que la tabla cargada
+  desde `winget error` gane sobre las constantes de respaldo.
+- `WingetService`: la ruta se re-resuelve por paquete · un `Win32Exception(5)` dispara un reintento ·
+  el mutex tomado espera y no falla de inmediato.
+- `RepairFixes`: salida de DISM en inglés con y sin corrupción · `net stop` código 2 = OK.
+
+**En Windows, con este orden:**
+
+1. **Nivel 1 de `docs/PRUEBAS.md` primero** — es lo único que sigue sin verificarse, y ahora el log
+   va a mostrar qué midió. Confirmar que el resumen del equipo dice bien modelo, RAM y tipo de disco.
+2. Reintentar la instalación de los 10 programas en un equipo **donde ya estén algunos**: es el caso
+   que producía los fallos falsos. Esperado: `Ya estaba` en verde, no `NotFound` en rojo.
+3. Reparar **sin** marcar el override, para confirmar que ahora el punto de restauración se crea y se
+   verifica. Comprobarlo en `rstrui.exe`.
+4. `Deshacer todo`, y verificar que revierte también el cambio de
+   `SystemRestorePointCreationFrequency`.
+
+---
 
 ## Context
 Necesitas una herramienta de técnico: la llevas en USB a los equipos que reparas, das un click y el
@@ -23,9 +240,11 @@ un click con undo total · portable .exe (sin instalador, sin firma de código, 
 ---
 
 ## Estado actual
-> Última actualización: después de conectar el módulo de winget con RustDesk.
-> Rama `main`, árbol limpio. **210 tests pasan, 2 se omiten** (los que exigen Windows).
+> Última actualización: después de la primera prueba real de v0.3.0 (log del 2026-08-25).
+> Rama `main`, árbol limpio, tag `v0.3.0`. **282 tests pasan, 2 se omiten** (los que exigen Windows).
 > `dotnet build` limpio en los tres proyectos, incluido el de WPF.
+>
+> Los arreglos pendientes están en **v0.4.0 — Plan activo**, arriba.
 
 ### Lo que ya funciona y está verificado
 
@@ -42,19 +261,30 @@ un click con undo total · portable .exe (sin instalador, sin firma de código, 
 | `PathGuard`, parser de certificados, IDs de winget, loader de config | `Core/Safety/`, `Core/Apps/`, `Core/Configuration/` | resto |
 | UI en WPF: inicio, analizando, reporte, instalar | `App/Views/MainWindow.xaml` | compila; **sin ejecutar** |
 
-### Lo escrito pero NO verificado
+### Verificado en un equipo real (log del 2026-08-25)
 
-Todo esto necesita un Windows real. Está concentrado a propósito para que una sola corrida lo valide:
+- **`WingetLocator`** encuentra winget bajo `Program Files\WindowsApps`, incluso elevado. La hipótesis
+  de que el alias por usuario fallaría al elevar era correcta y la solución funciona.
+- **Instalación con winget**: 7-Zip y VCRedist instalados con código 0.
+- **Descarga directa desde GitHub**: resolvió RustDesk 1.4.9 y bajó el asset correcto.
+- **`SystemFileRepairFix`**: DISM `/ScanHealth` → `/RestoreHealth` → `sfc` corrió completo y reparó.
+- **`DiskCheckFix`, `WindowsUpdateResetFix`, `NetworkStackResetFix`**: aplicados.
+- **El override del punto de restauración** funciona y queda registrado.
+- **`RustDesk.RustDesk` ya NO existe en winget** — confirmado por `NO_APPLICATIONS_FOUND`. La decisión
+  de bajarlo de GitHub era necesaria, no precautoria.
 
-- **`Core/Diagnostics/SystemProbe.cs`** — la única clase que habla con Windows. Los nombres de clase
-  WMI, los valores de `MediaType`, los campos del evento 100 y el mapa de bits de `productState`
-  salen de la documentación, no de una prueba.
-- **`Core/Apps/WingetLocator.cs`** — la búsqueda de `winget.exe` bajo `Program Files\WindowsApps`.
-- **El ID `RustDesk.RustDesk`** y el resto de los IDs de `appsettings.json`.
-- **Los códigos de salida de winget** (`0x8A15002B`, `0x8A150056`, `0x8A150061`). Si alguno está mal,
-  el peor caso es un fallo honesto con el código en crudo, nunca un éxito falso.
-- **`tools/spike/Verify-WindowsApis.ps1`** — escrito, nunca corrido. Imprime todos los contratos de
-  arriba. Es solo lectura: se puede correr en cualquier PC con Windows sin instalar nada.
+### Todavía NO verificado
+
+- **`Core/Diagnostics/SystemProbe.cs`** — el log no tiene ninguna línea del diagnóstico, así que no se
+  sabe si corrió ni qué midió. Es el defecto **F10** del plan activo: hasta que el log registre el
+  snapshot, cada prueba necesita capturas. **Es lo primero a verificar.**
+- **`RestorePointService`** — se ejecuta, pero su verificación es defectuosa (**F1**).
+- **`BitLockerService`** — el equipo de prueba no tenía BitLocker.
+- **El análisis de pantallazos** contra un equipo que efectivamente los tenga.
+- **`ScheduleMemoryTestFix` y `RemoveCorrelatedUpdateFix`** — nunca se ofrecieron, porque el equipo no
+  tenía pantallazos que los justificaran.
+- **`tools/spike/Verify-WindowsApis.ps1`** — escrito, nunca corrido. Sigue siendo la vía más rápida
+  para validar de una todos los contratos de WMI. Es solo lectura.
 
 ### Lo que falta implementar
 

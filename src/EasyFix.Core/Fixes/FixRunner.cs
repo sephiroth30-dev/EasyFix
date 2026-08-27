@@ -8,10 +8,13 @@ namespace EasyFix.Core.Fixes;
 public interface IRestorePointService
 {
     /// <summary>
-    /// Crea un punto de restauración y <b>verifica que exista</b>. Devuelve su número de secuencia,
-    /// o <c>null</c> si no se pudo crear.
+    /// Crea un punto de restauración y <b>espera a verificar que exista</b>.
     /// </summary>
-    Task<long?> CreateAsync(string description, CancellationToken ct);
+    /// <remarks>
+    /// Devuelve además si hubo que quitar el límite de frecuencia de Windows y cuál era su valor
+    /// anterior, para que quien llama lo registre en el journal y se pueda revertir.
+    /// </remarks>
+    Task<RestorePointResult> CreateAsync(string description, CancellationToken ct);
 }
 
 /// <summary>Suspende BitLocker antes de los fixes que tocan arranque o disco.</summary>
@@ -151,10 +154,10 @@ public sealed class FixRunner
         // ---- Compuerta 2: punto de restauración --------------------------------------------
         progress.Report("Creando punto de restauración…");
 
-        long? sequence;
+        RestorePointResult restorePoint;
         try
         {
-            sequence = await _restorePoints
+            restorePoint = await _restorePoints
                 .CreateAsync($"EasyFix {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm}", ct)
                 .ConfigureAwait(false);
         }
@@ -165,24 +168,55 @@ public sealed class FixRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "No se pudo crear el punto de restauración.");
-            sequence = null;
+            restorePoint = new RestorePointResult(null, FailureReason: ex.Message);
         }
 
+        // Si hubo que tocar el límite de frecuencia, se registra ANTES de seguir: es un cambio de
+        // configuración del sistema y «Deshacer todo» tiene que poder revertirlo.
+        if (restorePoint.ThrottleWasDisabled)
+        {
+            journal.Append(new JournalAction
+            {
+                FixId = "restorepoint.throttle",
+                Target = @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore",
+                Reversible = true,
+                Undo = new UndoStep
+                {
+                    Kind = restorePoint.PreviousThrottleValue is null
+                        ? UndoKind.RegistryValueDelete
+                        : UndoKind.RegistryValue,
+                    Payload = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["hive"] = "HKLM",
+                        ["path"] = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore",
+                        ["name"] = "SystemRestorePointCreationFrequency",
+                        ["kind"] = "DWord",
+                        ["value"] = restorePoint.PreviousThrottleValue?.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                    },
+                },
+                Note = "Se quitó el límite de un punto de restauración por día para poder crear el " +
+                       "de esta corrida.",
+            });
+        }
+
+        long? sequence = restorePoint.Sequence;
         bool withoutRestorePoint = false;
 
         if (sequence is null)
         {
             if (!allowWithoutRestorePoint)
             {
-                const string Reason =
-                    "No se pudo crear un punto de restauración, así que no se aplicó ningún cambio. " +
-                    "Suele ser porque Restaurar sistema está deshabilitado, o porque no hay espacio " +
-                    "libre en C:. Se puede continuar sin punto de restauración marcando la casilla " +
-                    "correspondiente, asumiendo que no habrá vuelta atrás automática.";
+                string reason =
+                    (restorePoint.FailureReason ??
+                     "No se pudo crear un punto de restauración.") +
+                    " No se aplicó ningún cambio. Se puede continuar sin punto de restauración " +
+                    "marcando la casilla correspondiente, asumiendo que no habrá vuelta atrás " +
+                    "automática del sistema completo.";
 
                 _logger.LogWarning("Corrida abortada: sin punto de restauración.");
                 journal.SetState(RunState.Aborted);
-                return Abort(Reason);
+                return Abort(reason);
             }
 
             // Decisión explícita del técnico. Se registra bien visible: el journal es lo que queda

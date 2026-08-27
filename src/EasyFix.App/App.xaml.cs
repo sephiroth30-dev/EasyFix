@@ -102,6 +102,12 @@ public partial class App : Application
         services.AddSingleton<IBitLockerService, BitLockerService>();
         services.AddSingleton<FixRunner>();
 
+        // Handlers de deshacer. Sin estos, UndoEngine reportaba "sin handler" para pasos que el
+        // journal sí registraba: honesto, pero inútil.
+        services.AddSingleton<IUndoHandler, RegistryValueUndoHandler>();
+        services.AddSingleton<IUndoHandler, RegistryValueDeleteUndoHandler>();
+        services.AddSingleton<IUndoHandler, BitLockerResumeUndoHandler>();
+
         // El ORDEN importa: se aplican en este orden. Primero lo que repara, después lo que mide,
         // y al final lo que puede requerir revertir una actualización.
         services.AddSingleton<IFix, SystemFileRepairFix>();

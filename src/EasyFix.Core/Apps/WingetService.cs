@@ -43,6 +43,9 @@ public sealed class WingetService
     /// <summary>Se intenta reparar las fuentes una sola vez por corrida.</summary>
     private bool _sourceRepairAttempted;
 
+    /// <summary>Tabla de códigos del winget del equipo. Se carga una vez por corrida.</summary>
+    private WingetErrorTable? _errorTable;
+
     public WingetService(
         IProcessRunner runner,
         IWingetLocator locator,
@@ -96,7 +99,7 @@ public sealed class WingetService
         var results = new List<WingetResult>(packages.Count);
 
         _sourceRepairAttempted = false;
-        string? winget = _locator.Find();
+        _errorTable = null;
 
         for (int i = 0; i < packages.Count; i++)
         {
@@ -115,24 +118,43 @@ public sealed class WingetService
                     .InstallAsync(package, textProgress, ct)
                     .ConfigureAwait(false);
             }
-            else if (winget is null)
-            {
-                result = WingetResultParser.Missing(package.Id);
-            }
             else
             {
-                result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+                // La ruta se resuelve ANTES DE CADA PAQUETE, no una vez por tanda: winget se
+                // autoactualiza en segundo plano y la carpeta de su paquete cambia de nombre. En la
+                // primera prueba real pasó de _1.29.280.0 a _1.29.290.0 a mitad de la tanda, y las
+                // instalaciones siguientes fallaron con "Acceso denegado" contra una ruta que ya no
+                // existía.
+                string? winget = _locator.Find();
 
-                // Reparar las fuentes y reintentar una vez. Es el fallo más común al correr elevado:
-                // el catálogo de winget se instala por usuario y la sesión de administrador no lo ve.
-                if (result.Outcome == WingetOutcome.SourceUnavailable && !_sourceRepairAttempted)
+                if (winget is null)
                 {
-                    _sourceRepairAttempted = true;
+                    result = WingetResultParser.Missing(package.Id);
+                }
+                else
+                {
+                    await LoadErrorTableAsync(winget, ct).ConfigureAwait(false);
 
-                    if (await TryRepairSourcesAsync(winget, ct).ConfigureAwait(false))
+                    // Esperar a que Windows Installer esté libre. "En serie" no alcanza: el
+                    // instalador anterior puede seguir finalizando. Es la explicación más probable
+                    // del código 1 de VLC, que arrancó en el mismo segundo en que terminó VCRedist.
+                    await WaitForInstallerAsync(progress, package, i, packages.Count, ct)
+                        .ConfigureAwait(false);
+
+                    result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+
+                    // Reparar las fuentes y reintentar una vez. Es el fallo más común al correr
+                    // elevado: el catálogo se instala por usuario y la sesión de administrador no lo ve.
+                    if (result.Outcome == WingetOutcome.SourceUnavailable && !_sourceRepairAttempted)
                     {
-                        _logger.LogInformation("Fuentes de winget reparadas. Reintentando {Package}.", package.Id);
-                        result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+                        _sourceRepairAttempted = true;
+
+                        if (await TryRepairSourcesAsync(winget, ct).ConfigureAwait(false))
+                        {
+                            _logger.LogInformation(
+                                "Fuentes de winget reparadas. Reintentando {Package}.", package.Id);
+                            result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+                        }
                     }
                 }
             }
@@ -144,6 +166,142 @@ public sealed class WingetService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Espera a que Windows Installer esté libre.
+    /// </summary>
+    /// <remarks>
+    /// Dos instaladores a la vez se pelean por el mutex global <c>_MSIExecute</c>: uno falla, o peor,
+    /// queda a medias. Instalar en serie no alcanza, porque el instalador anterior puede seguir
+    /// finalizando cuando arranca el siguiente — en la primera prueba real VLC arrancó en el mismo
+    /// segundo en que terminó Visual C++ Redistributable y devolvió código 1.
+    /// <para>Si el mutex no se libera en el tope, se sigue igual: bloquear la tanda entera por una
+    /// espera sería peor que intentar y reportar el fallo.</para>
+    /// </remarks>
+    private async Task WaitForInstallerAsync(
+        IProgress<InstallProgress>? progress,
+        WingetPackage package,
+        int index,
+        int total,
+        CancellationToken ct)
+    {
+        TimeSpan limit = TimeSpan.FromMinutes(3);
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + limit;
+        bool reported = false;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!IsWindowsInstallerBusy())
+            {
+                return;
+            }
+
+            if (!reported)
+            {
+                reported = true;
+                _logger.LogInformation(
+                    "Windows Installer está ocupado; esperando antes de instalar {Package}.", package.Id);
+                progress?.Report(new InstallProgress(
+                    package.Id, $"{package.Name} (esperando a que termine la instalación anterior)",
+                    index + 1, total));
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+        }
+
+        _logger.LogWarning(
+            "Windows Installer siguió ocupado tras {Minutes} min. Se instala {Package} igual.",
+            limit.TotalMinutes, package.Id);
+    }
+
+    /// <summary>
+    /// <c>true</c> si el mutex de Windows Installer está tomado.
+    /// </summary>
+    /// <remarks>
+    /// Solo se consulta su existencia; no se toma ni se libera. Tomarlo sería peor: bloquearía a los
+    /// instaladores legítimos.
+    /// </remarks>
+    private static bool IsWindowsInstallerBusy()
+    {
+        try
+        {
+            // El nombre lo define Windows Installer. Si existe, hay una instalación en curso.
+            using var mutex = System.Threading.Mutex.OpenExisting(@"Global\_MSIExecute");
+            return true;
+        }
+        catch (System.Threading.WaitHandleCannotBeOpenedException)
+        {
+            return false;   // no existe: nadie está instalando
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Existe pero sin permiso para abrirlo: igual significa que está tomado.
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Carga la tabla de códigos del winget del equipo, una sola vez por corrida.
+    /// </summary>
+    /// <remarks>
+    /// <c>winget error --output</c> exporta todos los códigos con su símbolo y descripción. Tenerla
+    /// hace que el detalle de un fallo no dependa de constantes nuestras, que ya estuvieron mal una
+    /// vez. Si el comando no existe en esa versión, se sigue con las constantes de respaldo.
+    /// </remarks>
+    private async Task LoadErrorTableAsync(string wingetPath, CancellationToken ct)
+    {
+        if (_errorTable is not null)
+        {
+            return;
+        }
+
+        _errorTable = new WingetErrorTable();   // vacía: evita reintentar en cada paquete
+
+        string outputPath = Path.Combine(
+            Path.GetTempPath(), $"easyfix-winget-errors-{Environment.ProcessId}.txt");
+
+        try
+        {
+            ProcessResult result = await _runner
+                .RunAsync(wingetPath, new[] { "error", "--output", outputPath },
+                    TimeSpan.FromSeconds(60), ct)
+                .ConfigureAwait(false);
+
+            if (result.Succeeded && File.Exists(outputPath))
+            {
+                _errorTable = WingetErrorTable.Parse(await File.ReadAllTextAsync(outputPath, ct).ConfigureAwait(false));
+                _logger.LogInformation(
+                    "Tabla de códigos de winget cargada: {Count} entradas.", _errorTable.Count);
+            }
+            else
+            {
+                // Normal en versiones de winget que no tienen el comando. Se usan las constantes.
+                _logger.LogInformation(
+                    "«winget error» no está disponible (código {Code}); se usan los códigos de respaldo.",
+                    result.ExitCode);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "No se pudo cargar la tabla de códigos de winget.");
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(outputPath)) { File.Delete(outputPath); }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     /// <summary>
@@ -251,32 +409,60 @@ public sealed class WingetService
 
         _logger.LogInformation("Instalando {PackageId} ({Name}).", package.Id, package.Name);
 
-        try
+        for (int attempt = 1; attempt <= 2; attempt++)
         {
-            ProcessResult process = await _runner
-                .RunAsync(wingetPath, arguments, _thresholds.ExternalProcessTimeout, ct)
-                .ConfigureAwait(false);
+            try
+            {
+                ProcessResult process = await _runner
+                    .RunAsync(wingetPath, arguments, _thresholds.ExternalProcessTimeout, ct)
+                    .ConfigureAwait(false);
 
-            WingetResult result = WingetResultParser.Parse(package.Id, process);
+                WingetResult result = WingetResultParser.Parse(package.Id, process, _errorTable);
 
-            _logger.LogInformation(
-                "{PackageId}: {Outcome} (código {Code}).", package.Id, result.Outcome, result.ExitCode);
+                _logger.LogInformation(
+                    "{PackageId}: {Outcome} (código {Code}). {Detail}",
+                    package.Id, result.Outcome, result.ExitCode, result.Detail);
 
-            return result;
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (System.ComponentModel.Win32Exception ex) when (
+                attempt == 1 && (ex.NativeErrorCode == 5 || ex.NativeErrorCode == 2))
+            {
+                // Acceso denegado (5) o no encontrado (2): la carpeta del paquete de winget se
+                // reemplazó por una autoactualización. Se vuelve a resolver la ruta y se reintenta.
+                string? refreshed = _locator.Find();
+
+                _logger.LogWarning(
+                    "Error {Code} al lanzar winget en {Old}. winget pudo haberse actualizado; " +
+                    "se reintenta con {New}.",
+                    ex.NativeErrorCode, wingetPath, refreshed ?? "(no encontrado)");
+
+                if (refreshed is null)
+                {
+                    return WingetResultParser.Missing(package.Id);
+                }
+
+                wingetPath = refreshed;
+            }
+            catch (Exception ex)
+            {
+                // Un paquete que revienta no puede cortar la tanda: los demás se siguen instalando.
+                _logger.LogError(ex, "Falló la instalación de {PackageId}.", package.Id);
+                return new WingetResult(
+                    package.Id,
+                    WingetOutcome.Failed,
+                    $"No se pudo ejecutar winget para {package.Id}: {ex.GetType().Name}: {ex.Message}",
+                    null);
+            }
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Un paquete que revienta no puede cortar la tanda: los demás se siguen instalando.
-            _logger.LogError(ex, "Falló la instalación de {PackageId}.", package.Id);
-            return new WingetResult(
-                package.Id,
-                WingetOutcome.Failed,
-                $"No se pudo ejecutar winget para {package.Id}: {ex.GetType().Name}: {ex.Message}",
-                null);
-        }
+
+        return new WingetResult(
+            package.Id, WingetOutcome.Failed,
+            $"No se pudo lanzar winget para {package.Id} ni después de volver a resolver su ruta.",
+            null);
     }
 }

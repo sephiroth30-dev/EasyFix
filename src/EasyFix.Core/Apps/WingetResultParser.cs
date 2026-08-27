@@ -26,8 +26,11 @@ public enum WingetOutcome
     /// </summary>
     SourceUnavailable,
 
-    /// <summary>El paquete no está en el repositorio de winget. Hace falta descarga directa.</summary>
-    NotInRepository,
+    /// <summary>
+    /// El ID no existe en el catálogo de winget. Hay que corregirlo en <c>appsettings.json</c> o
+    /// configurar una descarga directa.
+    /// </summary>
+    NotInCatalog,
 
     /// <summary>Se cortó por timeout.</summary>
     TimedOut,
@@ -70,35 +73,16 @@ public sealed record WingetResult(
 /// </remarks>
 public static class WingetResultParser
 {
-    /// <summary>Éxito.</summary>
-    public const int Success = 0;
+    // Los códigos viven en WingetErrorCodes: dos de los que había acá estaban mal y produjeron
+    // fallos falsos en la primera prueba real. Ver la nota de esa clase.
 
-    /// <summary><c>APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND</c> (pendiente de verificar).</summary>
-    public static readonly int NoApplicationsFound = unchecked((int)0x8A15002B);
-
-    /// <summary><c>APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED</c> (pendiente de verificar).</summary>
-    public static readonly int PackageAlreadyInstalled = unchecked((int)0x8A150056);
-
-    /// <summary><c>APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER</c> (pendiente de verificar).</summary>
-    public static readonly int NoApplicableInstaller = unchecked((int)0x8A150061);
-
-    /// <summary>
-    /// <c>APPINSTALLER_CLI_ERROR_SOURCE_DATA_MISSING</c>: falta la metadata de la fuente.
-    /// </summary>
-    /// <remarks>
-    /// Es el error que aparece al correr winget elevado. El paquete <c>Microsoft.Winget.Source</c> se
-    /// instala por usuario y la sesión del administrador no lo tiene, así que winget queda sin
-    /// catálogo. Ver microsoft/winget-cli#698. Se remedia con <c>winget source reset --force</c>.
-    /// </remarks>
-    public static readonly int SourceDataMissing = unchecked((int)0x8A15000F);
-
-    /// <summary><c>APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES</c>.</summary>
-    public static readonly int FailedToOpenAllSources = unchecked((int)0x8A150014);
-
-    /// <summary><c>APPINSTALLER_CLI_ERROR_SOURCE_NOT_FOUND</c>.</summary>
-    public static readonly int SourceNotFound = unchecked((int)0x8A150010);
-
-    public static WingetResult Parse(string packageId, ProcessResult process)
+    /// <param name="packageId">Qué paquete.</param>
+    /// <param name="process">Resultado del proceso.</param>
+    /// <param name="table">
+    /// Tabla de códigos del winget del equipo, si se pudo cargar. Cuando está, su símbolo y
+    /// descripción se usan para el detalle: el mapeo lo provee winget y no una constante nuestra.
+    /// </param>
+    public static WingetResult Parse(string packageId, ProcessResult process, WingetErrorTable? table = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(process);
@@ -115,7 +99,7 @@ public static class WingetResultParser
 
         int? code = process.ExitCode;
 
-        if (code == Success)
+        if (code == WingetErrorCodes.Success)
         {
             // winget devuelve 0 y avisa por stdout cuando ya estaba instalado y no hizo nada.
             return LooksAlreadyInstalled(process.StandardOutput)
@@ -125,20 +109,29 @@ public static class WingetResultParser
                     $"{packageId} se instaló correctamente.", code);
         }
 
-        if (code == PackageAlreadyInstalled)
+        if (code is not int value)
+        {
+            return new WingetResult(packageId, WingetOutcome.Failed,
+                $"winget terminó sin devolver un código de salida para {packageId}.", null);
+        }
+
+        // "Ya está instalado" NO es un fallo. UPDATE_NOT_APPLICABLE sobre un install significa
+        // exactamente eso, y era el caso que se reportaba como "no encontrado".
+        if (WingetErrorCodes.MeansAlreadyInstalled(value))
         {
             return new WingetResult(packageId, WingetOutcome.AlreadyInstalled,
-                $"{packageId} ya estaba instalado.", code);
+                $"{packageId} ya estaba instalado en su última versión.", code);
         }
 
-        if (code == NoApplicationsFound)
+        if (value == WingetErrorCodes.NoApplicationsFound)
         {
-            return new WingetResult(packageId, WingetOutcome.NotFound,
-                $"No se encontró el paquete '{packageId}'. Puede haber cambiado de ID en el " +
-                "repositorio: hay que actualizarlo en appsettings.json.", code);
+            return new WingetResult(packageId, WingetOutcome.NotInCatalog,
+                $"El catálogo de winget no tiene ningún paquete con el ID '{packageId}'. Puede haber " +
+                "cambiado de nombre, o haber sido removido del repositorio. Hay que corregir el ID en " +
+                "appsettings.json, o configurarle una descarga directa.", code);
         }
 
-        if (code == SourceDataMissing || code == FailedToOpenAllSources || code == SourceNotFound)
+        if (WingetErrorCodes.IsSourceProblem(value))
         {
             return new WingetResult(packageId, WingetOutcome.SourceUnavailable,
                 "winget no puede leer su catálogo de paquetes. Pasa al ejecutarse como " +
@@ -147,27 +140,29 @@ public static class WingetResultParser
                 "fallando, abrí una consola SIN administrador y corré ese mismo comando.", code);
         }
 
-        if (code == NoApplicableInstaller)
+        if (value == WingetErrorCodes.NoApplicableInstaller)
         {
             return new WingetResult(packageId, WingetOutcome.NoApplicableInstaller,
                 $"{packageId} no tiene un instalador compatible con este equipo (arquitectura o " +
                 "versión de Windows).", code);
         }
 
-        // Cualquier otra cosa: fallo, con el código en crudo para poder diagnosticarlo.
-        string hex = code is null ? "desconocido" : $"0x{code.Value:X8}";
+        // Cualquier otra cosa: fallo, con todo lo que se pueda decir del código.
+        string hex = $"0x{value:X8}";
+        string? symbol = table?.SymbolFor(value);
+        string? official = table?.DescriptionFor(value);
 
-        // stderr primero; si winget no escribió nada ahí, la primera línea útil de stdout suele
-        // traer el motivo. Puede no haber ninguna de las dos.
         string? errorLine = FirstMeaningfulLine(process.StandardError)
                             ?? FirstMeaningfulLine(process.StandardOutput);
 
-        return new WingetResult(
-            packageId,
-            WingetOutcome.Failed,
-            $"Falló la instalación de {packageId} (código {hex})." +
-            (errorLine is null ? string.Empty : $" {errorLine}"),
-            code);
+        var detail = new System.Text.StringBuilder();
+        detail.Append($"Falló la instalación de {packageId} (código {hex}");
+        if (symbol is not null) { detail.Append($", {symbol}"); }
+        detail.Append(").");
+        if (official is { Length: > 0 }) { detail.Append($" {official}."); }
+        if (errorLine is not null) { detail.Append($" {errorLine}"); }
+
+        return new WingetResult(packageId, WingetOutcome.Failed, detail.ToString(), code);
     }
 
     /// <summary>Resultado para cuando winget no está en el equipo.</summary>

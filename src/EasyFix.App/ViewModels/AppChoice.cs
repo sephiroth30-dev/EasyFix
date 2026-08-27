@@ -59,8 +59,7 @@ public sealed partial class AppChoice : ObservableObject
         {
             WingetOutcome.Installed => ("Instalado", "ok"),
             WingetOutcome.AlreadyInstalled => ("Ya estaba", "ok"),
-            WingetOutcome.NotFound => ("No está en el catálogo", "crit"),
-            WingetOutcome.NotInRepository => ("No está en winget", "warn"),
+            WingetOutcome.NotInCatalog => ("No está en el catálogo", "crit"),
             WingetOutcome.SourceUnavailable => ("winget sin catálogo", "crit"),
             WingetOutcome.NoApplicableInstaller => ("Sin instalador compatible", "crit"),
             WingetOutcome.WingetMissing => ("Falta winget", "crit"),

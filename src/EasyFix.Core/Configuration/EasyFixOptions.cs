@@ -31,6 +31,20 @@ public sealed record ThresholdOptions
     public int MaxConcurrentChecks { get; init; } = 8;
     public int ExternalProcessTimeoutMinutes { get; init; } = 30;
 
+    /// <summary>
+    /// Quitar el límite de un punto de restauración por día antes de crear el propio.
+    /// </summary>
+    /// <remarks>
+    /// Windows no crea más de un punto cada 24 h salvo que se ponga
+    /// <c>SystemRestorePointCreationFrequency</c> en 0. En el equipo de un cliente que ya tuvo
+    /// actividad ese día, ese límite impide que la herramienta cree su red de seguridad — que es
+    /// exactamente lo que pasó en la primera prueba real. Se cambia informando el valor anterior, se
+    /// registra en el journal y «Deshacer todo» lo revierte.
+    /// <para>El costo es más espacio en copias de sombra, acotado por el límite que ya tiene
+    /// configurado Restaurar sistema.</para>
+    /// </remarks>
+    public bool DisableRestorePointThrottle { get; init; } = true;
+
     public TimeSpan TempFileMinAge => TimeSpan.FromMinutes(TempFileMinAgeMinutes);
     public TimeSpan PerCheckTimeout => TimeSpan.FromSeconds(PerCheckTimeoutSeconds);
     public TimeSpan ExternalProcessTimeout => TimeSpan.FromMinutes(ExternalProcessTimeoutMinutes);

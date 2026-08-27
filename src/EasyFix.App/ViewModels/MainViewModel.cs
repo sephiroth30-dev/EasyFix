@@ -227,6 +227,24 @@ public sealed partial class MainViewModel : ObservableObject
             _lastProbe = result;
             _lastCrash = CrashAnalyzer.Analyze(result.Crash);
 
+            // Todo lo medido al log. Sin esto el log solo hablaba de fallos, así que no servía para
+            // confirmar que el diagnóstico funcionó ni para revisar un dato que salió mal.
+            _logger.LogInformation(
+                "Diagnóstico completo. Equipo: {Machine}{NewLine}{Snapshot}",
+                result.Identity.Describe(result.Snapshot).Replace("\n", " · ", StringComparison.Ordinal),
+                Environment.NewLine,
+                result.Snapshot.ToLogSummary());
+
+            if (result.Failures.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Sondas sin determinar ({Count}):{NewLine}{Failures}",
+                    result.Failures.Count,
+                    Environment.NewLine,
+                    string.Join(Environment.NewLine,
+                        result.Failures.Select(f => $"  {f.CheckId}: {f.Reason}")));
+            }
+
             BuildReport(result, _lastCrash);
             CurrentScreen = Screen.Report;
         }
@@ -290,6 +308,16 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         NotifyReportChanged();
+
+        // Los hallazgos también al log: un reporte se puede reconstruir desde el archivo sin
+        // necesitar capturas de pantalla.
+        _logger.LogInformation(
+            "Hallazgos: {Software} de software, {Hardware} de hardware.{NewLine}{Rows}",
+            SoftwareRows.Count, HardwareRows.Count, Environment.NewLine,
+            string.Join(Environment.NewLine,
+                SoftwareRows.Concat(HardwareRows)
+                    .Select(r => $"  [{r.Kind}] {r.Title}" +
+                                 (r.Metrics is null ? string.Empty : $" — {r.Metrics}"))));
 
         if (SoftwareRows.Count == 0 && HardwareRows.Count == 0)
         {

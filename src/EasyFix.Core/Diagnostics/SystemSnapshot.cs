@@ -94,4 +94,47 @@ public sealed record SystemSnapshot
     public int ActiveAntivirusCount { get; init; }
 
     public bool IsSsd => PrimaryDiskMedia is DiskMedia.Ssd or DiskMedia.Scm;
+
+    /// <summary>
+    /// Todo lo medido en una línea por campo, para el log.
+    /// </summary>
+    /// <remarks>
+    /// Sin esto el log solo hablaba cuando algo fallaba, así que no servía para confirmar que el
+    /// diagnóstico había funcionado — que era justamente lo que faltaba verificar. Los campos sin
+    /// medir salen como «no medido», nunca como cero.
+    /// </remarks>
+    public string ToLogSummary()
+    {
+        static string N(double? v, string unit = "") =>
+            v is double d ? $"{d:0.##}{unit}" : "no medido";
+
+        static string I(int? v) =>
+            v is int i ? i.ToString(System.Globalization.CultureInfo.InvariantCulture) : "no medido";
+
+        return string.Join(Environment.NewLine, new[]
+        {
+            $"  disco.tipo            = {PrimaryDiskMedia}",
+            $"  disco.salud           = {PrimaryDiskHealth}",
+            $"  disco.libre%          = {N(SystemDriveFreePercent, " %")}",
+            $"  disco.total           = {N(SystemDriveTotalGb, " GB")}",
+            $"  disco.latencia        = {N(DiskLatencyMs, " ms")}",
+            $"  ram.total             = {N(TotalRamGb, " GB")}",
+            $"  ram.slots_libres      = {I(FreeMemorySlots)}",
+            $"  ram.tipo              = {MemoryType ?? "no medido"}",
+            $"  ram.velocidad         = {I(MemorySpeedMhz)}",
+            $"  ram.commit%           = {N(CommitUsedPercent, " %")}",
+            $"  cpu.nombre            = {CpuName ?? "no medido"}",
+            $"  cpu.nucleos           = {I(CpuCoreCount)}",
+            $"  cpu.frecuencia%       = {N(CpuPercentOfMaxFrequency, " %")}",
+            $"  bateria.desgaste      = {N(BatteryWearPercent, " %")}",
+            $"  arranque.ms           = {I(MainPathBootTimeMs)}",
+            $"  arranque.programas    = {I(EnabledStartupEntryCount)}",
+            $"  arranque.retraso_ms   = {I(StartupDegradationMs)}",
+            $"  dominio               = {IsDomainJoined}",
+            $"  bitlocker             = {BitLockerActive}",
+            $"  impresoras            = {HasPrinters}",
+            $"  bluetooth             = {HasBluetoothAdapter}",
+            $"  antivirus_activos     = {ActiveAntivirusCount}",
+        });
+    }
 }

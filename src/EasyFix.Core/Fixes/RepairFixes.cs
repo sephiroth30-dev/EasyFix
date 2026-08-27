@@ -54,6 +54,20 @@ public abstract class ProcessFix : IFix
             Thresholds.ExternalProcessTimeout,
             ct);
 
+    /// <summary>Primera línea no vacía de un texto, para mensajes de error.</summary>
+    protected static string FirstLine(string text)
+    {
+        foreach (string line in text.Split('\n'))
+        {
+            if (line.Trim().Length > 0)
+            {
+                return line.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
     /// <summary>Registra la acción antes de aplicarla. Nunca después.</summary>
     protected void Journal(FixContext context, string target, string? note = null, long? freedBytes = null) =>
         context.Journal.Append(new JournalAction
@@ -109,9 +123,12 @@ public sealed class SystemFileRepairFix : ProcessFix
     {
         log.Report("Revisando la integridad de los archivos del sistema (puede tardar varios minutos)…");
 
+        // /English fuerza salida en inglés sin importar el idioma del sistema. Sin esto la detección
+        // de "no hay corrupción" compara texto en inglés contra un Windows en español, nunca acierta,
+        // y RestoreHealth corre siempre: ~4 minutos perdidos en cada corrida.
         ProcessResult scan = await RunSystem32Async(
             "Dism.exe",
-            new[] { "/Online", "/Cleanup-Image", "/ScanHealth" },
+            new[] { "/Online", "/Cleanup-Image", "/ScanHealth", "/English" },
             ct).ConfigureAwait(false);
 
         if (scan.TimedOut)
@@ -121,9 +138,10 @@ public sealed class SystemFileRepairFix : ProcessFix
                 "o con errores.");
         }
 
-        bool repairable = Mentions(scan, "repairable") || Mentions(scan, "reparable");
-        bool noCorruption = Mentions(scan, "no component store corruption") ||
-                            Mentions(scan, "no se detectó ningún daño");
+        // Con /English la salida es determinista: "No component store corruption detected." cuando
+        // está sano, y "The component store is repairable." cuando hay daño reparable.
+        bool repairable = Mentions(scan, "component store is repairable");
+        bool noCorruption = Mentions(scan, "No component store corruption detected");
 
         if (noCorruption && !repairable)
         {
@@ -139,7 +157,7 @@ public sealed class SystemFileRepairFix : ProcessFix
 
         ProcessResult restore = await RunSystem32Async(
             "Dism.exe",
-            new[] { "/Online", "/Cleanup-Image", "/RestoreHealth" },
+            new[] { "/Online", "/Cleanup-Image", "/RestoreHealth", "/English" },
             ct).ConfigureAwait(false);
 
         if (restore.TimedOut)
@@ -172,7 +190,7 @@ public sealed class SystemFileRepairFix : ProcessFix
                 "Conviene reiniciar y repetir.");
         }
 
-        // sfc pide reinicio cuando repara algo que está en uso.
+        // sfc no tiene equivalente de /English, así que acá sí hay que buscar las dos variantes.
         bool needsReboot = Mentions(sfc, "restart") || Mentions(sfc, "reiniciar");
 
         string summary = needsReboot
@@ -395,10 +413,21 @@ public sealed class NetworkStackResetFix : ProcessFix
         log.Report("Limpiando la caché de DNS…");
         await RunSystem32Async("ipconfig.exe", new[] { "/flushdns" }, ct).ConfigureAwait(false);
 
-        if (!winsock.Succeeded && !ip.Succeeded)
+        // "netsh int ip reset" devuelve 1 con frecuencia aunque haya funcionado: no puede reponer
+        // algunas claves que ya estaban en su valor por defecto. Solo se considera fallo si winsock
+        // —que sí es fiable— también falló.
+        if (!winsock.Succeeded)
         {
             return FixOutcome.Failed(
-                $"No se pudo restablecer la red (winsock {winsock.ExitCode}, ip {ip.ExitCode}).");
+                $"No se pudo restablecer winsock (código {winsock.ExitCode}). " +
+                FirstLine(winsock.StandardError));
+        }
+
+        if (!ip.Succeeded)
+        {
+            Log.LogInformation(
+                "«netsh int ip reset» devolvió {Code}; es habitual y no impide el restablecimiento.",
+                ip.ExitCode);
         }
 
         return FixOutcome.NeedsReboot(
@@ -539,8 +568,19 @@ public sealed class WindowsUpdateResetFix : ProcessFix
 
         foreach (string service in Services)
         {
-            log.Report($"Detiendo {service}…");
-            await RunSystem32Async("net.exe", new[] { "stop", service }, ct).ConfigureAwait(false);
+            log.Report($"Deteniendo {service}…");
+
+            ProcessResult stop = await RunSystem32Async("net.exe", new[] { "stop", service }, ct)
+                .ConfigureAwait(false);
+
+            // net.exe devuelve 2 cuando el servicio YA estaba detenido. Es el caso normal, no un
+            // fallo: en la primera prueba real BITS estaba parado y ensuciaba el log con una
+            // advertencia por corrida.
+            if (!stop.Succeeded && stop.ExitCode != 2)
+            {
+                Log.LogWarning(
+                    "No se pudo detener {Service} (código {Code}).", service, stop.ExitCode);
+            }
         }
 
         string root = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -577,7 +617,17 @@ public sealed class WindowsUpdateResetFix : ProcessFix
         foreach (string service in Services)
         {
             log.Report($"Arrancando {service}…");
-            await RunSystem32Async("net.exe", new[] { "start", service }, ct).ConfigureAwait(false);
+
+            ProcessResult start = await RunSystem32Async("net.exe", new[] { "start", service }, ct)
+                .ConfigureAwait(false);
+
+            // 2 = ya estaba corriendo. Tampoco es un fallo.
+            if (!start.Succeeded && start.ExitCode != 2)
+            {
+                Log.LogWarning(
+                    "No se pudo arrancar {Service} (código {Code}). Windows lo arranca solo cuando " +
+                    "haga falta.", service, start.ExitCode);
+            }
         }
 
         return renamed.Count == 0

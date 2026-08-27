@@ -17,19 +17,37 @@ public sealed class FixRunnerTests
     {
         private readonly long? _sequence;
         private readonly Exception? _throws;
+        private readonly bool _throttleDisabled;
+        private readonly int? _previousThrottle;
 
-        public FakeRestorePoints(long? sequence, Exception? throws = null)
+        public FakeRestorePoints(
+            long? sequence,
+            Exception? throws = null,
+            bool throttleDisabled = false,
+            int? previousThrottle = null)
         {
             _sequence = sequence;
             _throws = throws;
+            _throttleDisabled = throttleDisabled;
+            _previousThrottle = previousThrottle;
         }
 
         public int Calls { get; private set; }
 
-        public Task<long?> CreateAsync(string description, CancellationToken ct)
+        public Task<RestorePointResult> CreateAsync(string description, CancellationToken ct)
         {
             Calls++;
-            return _throws is not null ? throw _throws : Task.FromResult(_sequence);
+
+            if (_throws is not null)
+            {
+                throw _throws;
+            }
+
+            return Task.FromResult(new RestorePointResult(
+                _sequence,
+                _throttleDisabled,
+                _previousThrottle,
+                _sequence is null ? "El punto no apareció en el tiempo esperado." : null));
         }
     }
 
@@ -170,7 +188,7 @@ public sealed class FixRunnerTests
     [Fact]
     public async Task PuntoDeRestauracionQueRevienta_SeTrataComoNoCreado()
     {
-        var points = new FakeRestorePoints(null, new InvalidOperationException("WMI caído"));
+        var points = new FakeRestorePoints(null, throws: new InvalidOperationException("WMI caído"));
         var runner = new FixRunner(points, new FakeBitLocker(true), NullLogger<FixRunner>.Instance);
         (RunJournal journal, _) = Journal();
         var fix = new FakeFix("cualquiera");
@@ -284,6 +302,70 @@ public sealed class FixRunnerTests
 
         Assert.False(result.RanWithoutRestorePoint);
         Assert.Equal(42, result.RestorePointSequence);
+    }
+
+    [Fact]
+    public async Task SiSeQuitoElLimiteDeFrecuencia_QuedaRegistradoParaPoderRevertirlo()
+    {
+        // Es el único cambio de configuración del sistema que hace la herramienta para poder
+        // funcionar. Tiene que quedar en el journal con su valor anterior.
+        var points = new FakeRestorePoints(42, throttleDisabled: true, previousThrottle: 1440);
+        var runner = new FixRunner(points, new FakeBitLocker(true), NullLogger<FixRunner>.Instance);
+        (RunJournal journal, ListJournalSink sink) = Journal();
+
+        await runner.RunAsync(new[] { new FakeFix("a") }, HealthyPc, null, journal, false);
+
+        LoadedJournal loaded = JournalReader.Parse(sink.Lines);
+        JournalAction throttle = Assert.Single(loaded.Actions, a => a.FixId == "restorepoint.throttle");
+
+        Assert.True(throttle.Reversible);
+        Assert.Equal(UndoKind.RegistryValue, throttle.Undo!.Kind);
+        Assert.Equal("1440", throttle.Undo.Require("value"));
+    }
+
+    [Fact]
+    public async Task SiElLimiteNoExistia_ElUndoLoBorraEnVezDeRestaurarUnValor()
+    {
+        var points = new FakeRestorePoints(42, throttleDisabled: true, previousThrottle: null);
+        var runner = new FixRunner(points, new FakeBitLocker(true), NullLogger<FixRunner>.Instance);
+        (RunJournal journal, ListJournalSink sink) = Journal();
+
+        await runner.RunAsync(new[] { new FakeFix("a") }, HealthyPc, null, journal, false);
+
+        LoadedJournal loaded = JournalReader.Parse(sink.Lines);
+        JournalAction throttle = Assert.Single(loaded.Actions, a => a.FixId == "restorepoint.throttle");
+
+        // Restaurar un valor que no existía dejaría basura: hay que borrarlo.
+        Assert.Equal(UndoKind.RegistryValueDelete, throttle.Undo!.Kind);
+    }
+
+    [Fact]
+    public async Task SiNoSeTocoElLimite_NoSeRegistraNada()
+    {
+        var points = new FakeRestorePoints(42, throttleDisabled: false);
+        var runner = new FixRunner(points, new FakeBitLocker(true), NullLogger<FixRunner>.Instance);
+        (RunJournal journal, ListJournalSink sink) = Journal();
+
+        await runner.RunAsync(new[] { new FakeFix("a") }, HealthyPc, null, journal, false);
+
+        LoadedJournal loaded = JournalReader.Parse(sink.Lines);
+        Assert.DoesNotContain(loaded.Actions, a => a.FixId == "restorepoint.throttle");
+    }
+
+    [Fact]
+    public async Task ElMotivoRealDelFalloLlegaAlMensajeDeAborto()
+    {
+        // El mensaje genérico anterior decía siempre lo mismo. Ahora se propaga lo que informó el
+        // servicio, que es lo que permite distinguir "VSS detenido" de "sin espacio".
+        var points = new FakeRestorePoints(null);
+        var runner = new FixRunner(points, new FakeBitLocker(true), NullLogger<FixRunner>.Instance);
+        (RunJournal journal, _) = Journal();
+
+        RunResult result = await runner.RunAsync(
+            new[] { new FakeFix("a") }, HealthyPc, null, journal, false);
+
+        Assert.True(result.Aborted);
+        Assert.Contains("no apareció en el tiempo esperado", result.AbortReason!, StringComparison.Ordinal);
     }
 
     // ---- Compuerta 3: BitLocker -------------------------------------------------------------
