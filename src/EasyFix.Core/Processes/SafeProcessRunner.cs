@@ -57,7 +57,8 @@ public sealed class SafeProcessRunner : IProcessRunner
         string executablePath,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyCollection<int>? benignExitCodes = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -164,9 +165,21 @@ public sealed class SafeProcessRunner : IProcessRunner
         }
         else if (!result.Succeeded)
         {
-            _logger.LogWarning(
-                "{Exe} terminó con código {Code}. stderr: {Error}",
-                executablePath, exitCode, Truncate(result.StandardError, 500));
+            // Un código declarado benigno por quien llama va a Information: no es un problema y
+            // registrarlo como advertencia entrena a ignorar las advertencias.
+            bool benign = exitCode is int code && benignExitCodes?.Contains(code) == true;
+
+            if (benign)
+            {
+                _logger.LogInformation(
+                    "{Exe} terminó con código {Code}, esperado en este contexto.", executablePath, exitCode);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "{Exe} terminó con código {Code}. stderr: {Error}",
+                    executablePath, exitCode, Truncate(result.StandardError, 500));
+            }
         }
 
         return result;

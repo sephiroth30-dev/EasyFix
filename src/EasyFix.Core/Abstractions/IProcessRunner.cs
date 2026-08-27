@@ -32,9 +32,15 @@ public interface IProcessRunner
     /// que un binario homónimo en el directorio actual secuestre la llamada.
     /// </param>
     /// <param name="arguments">Un elemento por argumento. El escaping lo hace el runtime.</param>
+    /// <param name="benignExitCodes">
+    /// Códigos distintos de cero que en este contexto son normales y no deben registrarse como
+    /// advertencia. Por ejemplo <c>net stop</c> devuelve 2 cuando el servicio ya estaba detenido, que
+    /// es el caso habitual y ensuciaba el log en cada corrida.
+    /// </param>
     Task<ProcessResult> RunAsync(
         string executablePath,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        IReadOnlyCollection<int>? benignExitCodes = null);
 }

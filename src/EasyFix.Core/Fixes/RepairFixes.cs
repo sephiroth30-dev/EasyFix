@@ -47,12 +47,16 @@ public abstract class ProcessFix : IFix
 
     /// <summary>Corre un binario de <c>System32</c> con el timeout configurado.</summary>
     protected Task<ProcessResult> RunSystem32Async(
-        string executableName, IReadOnlyList<string> arguments, CancellationToken ct) =>
+        string executableName,
+        IReadOnlyList<string> arguments,
+        CancellationToken ct,
+        IReadOnlyCollection<int>? benignExitCodes = null) =>
         Runner.RunAsync(
             SafeProcessRunner.System32(executableName),
             arguments,
             Thresholds.ExternalProcessTimeout,
-            ct);
+            ct,
+            benignExitCodes);
 
     /// <summary>Primera línea no vacía de un texto, para mensajes de error.</summary>
     protected static string FirstLine(string text)
@@ -407,8 +411,11 @@ public sealed class NetworkStackResetFix : ProcessFix
             "netsh.exe", new[] { "winsock", "reset" }, ct).ConfigureAwait(false);
 
         log.Report("Restableciendo la configuración IP…");
+
+        // 1 es habitual acá: netsh no puede reponer algunas claves que ya estaban en su valor por
+        // defecto, y devuelve 1 aunque el restablecimiento haya funcionado.
         ProcessResult ip = await RunSystem32Async(
-            "netsh.exe", new[] { "int", "ip", "reset" }, ct).ConfigureAwait(false);
+            "netsh.exe", new[] { "int", "ip", "reset" }, ct, new[] { 1 }).ConfigureAwait(false);
 
         log.Report("Limpiando la caché de DNS…");
         await RunSystem32Async("ipconfig.exe", new[] { "/flushdns" }, ct).ConfigureAwait(false);
@@ -543,6 +550,9 @@ public sealed class WindowsUpdateResetFix : ProcessFix
 {
     private static readonly string[] Services = { "wuauserv", "bits", "cryptsvc" };
 
+    /// <summary>net.exe devuelve 2 cuando el servicio ya estaba en el estado pedido.</summary>
+    private static readonly int[] ServiceAlreadyInState = { 2 };
+
     public WindowsUpdateResetFix(
         IProcessRunner runner, ThresholdOptions thresholds, ILogger<WindowsUpdateResetFix> logger)
         : base(runner, thresholds, logger) { }
@@ -570,7 +580,9 @@ public sealed class WindowsUpdateResetFix : ProcessFix
         {
             log.Report($"Deteniendo {service}…");
 
-            ProcessResult stop = await RunSystem32Async("net.exe", new[] { "stop", service }, ct)
+            // 2 = el servicio ya estaba detenido. Es el caso normal.
+            ProcessResult stop = await RunSystem32Async(
+                    "net.exe", new[] { "stop", service }, ct, ServiceAlreadyInState)
                 .ConfigureAwait(false);
 
             // net.exe devuelve 2 cuando el servicio YA estaba detenido. Es el caso normal, no un
@@ -618,7 +630,8 @@ public sealed class WindowsUpdateResetFix : ProcessFix
         {
             log.Report($"Arrancando {service}…");
 
-            ProcessResult start = await RunSystem32Async("net.exe", new[] { "start", service }, ct)
+            ProcessResult start = await RunSystem32Async(
+                    "net.exe", new[] { "start", service }, ct, ServiceAlreadyInState)
                 .ConfigureAwait(false);
 
             // 2 = ya estaba corriendo. Tampoco es un fallo.

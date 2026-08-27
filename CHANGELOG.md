@@ -17,6 +17,59 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.4.1] — 2026-08-27
+
+Correcciones de dos logs de equipos distintos: un Latitude E5530 con Windows 10 y un Latitude 3410 con
+Windows 11.
+
+### Confirmado que v0.4.0 arregló
+
+- **Punto de restauración verificado**, en 2 intentos de sondeo la primera vez y 1 la segunda. El
+  falso negativo que bloqueaba todo está resuelto.
+- **DISM con `/English` detectó «íntegro»** y se salteó `RestoreHealth`: ~4 minutos ahorrados por
+  corrida, tal como se esperaba.
+- **`netsh int ip reset` código 1** ya se registra como informativo.
+- **El diagnóstico completo queda en el log.** Los dos equipos se pueden auditar sin capturas.
+- **La ruta de winget se re-resuelve antes de cada paquete.**
+
+### Corregido
+
+- **El retraso de arranque daba números absurdos.** Un equipo reportó «814 s de retraso» sobre un
+  arranque de 27 s. Dos causas: se sumaba `TotalTime` (el total de cada app) en lugar de
+  `DegradationTime` (cuánto retrasó), y se contaban eventos de **todo el historial** en vez de solo el
+  último arranque. Ahora se acota a los eventos posteriores al evento 100 más reciente. Si no se puede
+  determinar la ventana, no se informa: mejor callar que informar mal.
+- **`disk.latency` y `memory.pressure` daban timeout en los dos equipos.** Las clases
+  `Win32_PerfFormattedData_*` tienen que inicializar el subsistema de contadores en la primera
+  consulta y no alcanzan 5 s. Ahora esas dos sondas tienen 25 s propios.
+- **Chrome fallaba con `0x8A150011`** = `INSTALLER_HASH_MISMATCH`: el instalador se descargó dañado.
+  Se mapea con su explicación y **se reintenta una vez**, que resuelve la mayoría de los casos.
+- **El detalle de un fallo de winget era literalmente «-».** winget dibuja un spinner en stdout y se
+  tomaba como la primera línea útil. Ahora se descartan las líneas que son solo animación, sin
+  recortar el contenido de las que sí tienen mensaje.
+- **El instalador de RustDesk se colgó 40 minutos** y bloqueó la tanda con el timeout de 30 min, que
+  está pensado para DISM. Dos cambios: **timeout propio por paquete** (8 min por defecto), y se
+  prefiere el **MSI** sobre el EXE, lanzado con `msiexec /qn` — la documentación de RustDesk lo
+  recomienda porque su instalación silenciosa por EXE tiene problemas conocidos.
+- **`net stop` con código 2 seguía apareciendo como advertencia.** El fix anterior lo manejaba en el
+  fix, pero la advertencia la emitía el runner. Ahora quien invoca puede declarar códigos benignos.
+
+### Estado de las pruebas
+
+| Componente | Estado |
+|---|---|
+| Diagnóstico completo | ✅ verificado en 2 equipos; el resumen coincide con el hardware real |
+| `RestorePointService` | ✅ crea y verifica correctamente |
+| DISM, `sfc`, `chkdsk`, WU, red | ✅ aplicados en equipo real |
+| Instalación con winget | ✅ Adobe, 7-Zip, VCRedist x64 y x86 instalados |
+| Descarga directa desde GitHub | ⚠️ resuelve y descarga; el MSI **sin reprobar** |
+| Chrome | ⚠️ falló por hash; el reintento **sin reprobar** |
+| Retraso de arranque | ⚠️ corregido, **sin reprobar** |
+| `BitLockerService` | ❌ ninguno de los equipos tenía BitLocker |
+| Análisis de pantallazos | ❌ **sin ejecutar** contra un equipo con pantallazos |
+
+---
+
 ## [0.4.0] — 2026-08-27
 
 Correcciones salidas del log de la primera prueba real. **La mayor parte de v0.3.0 funcionaba**; lo

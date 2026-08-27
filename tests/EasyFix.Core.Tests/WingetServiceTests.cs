@@ -45,7 +45,8 @@ public sealed class WingetServiceTests
             string executablePath,
             IReadOnlyList<string> arguments,
             TimeSpan timeout,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            IReadOnlyCollection<int>? benignExitCodes = null)
         {
             Calls.Add((executablePath, arguments));
 
@@ -245,7 +246,8 @@ public sealed class WingetServiceTests
     private sealed class ThrowingRunner : IProcessRunner
     {
         public Task<ProcessResult> RunAsync(
-            string executablePath, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct = default) =>
+            string executablePath, IReadOnlyList<string> arguments, TimeSpan timeout,
+            CancellationToken ct = default, IReadOnlyCollection<int>? benignExitCodes = null) =>
             throw new System.ComponentModel.Win32Exception("El proceso no se pudo iniciar.");
     }
 

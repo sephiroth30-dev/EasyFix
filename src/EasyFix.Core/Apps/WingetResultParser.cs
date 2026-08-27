@@ -140,6 +140,15 @@ public static class WingetResultParser
                 "fallando, abrí una consola SIN administrador y corré ese mismo comando.", code);
         }
 
+        if (value == WingetErrorCodes.InstallerHashMismatch)
+        {
+            return new WingetResult(packageId, WingetOutcome.Failed,
+                $"El instalador de {packageId} se descargó dañado: su hash no coincide con el del " +
+                "catálogo. Casi siempre es una descarga cortada y se resuelve reintentando. Si vuelve " +
+                "a pasar, el catálogo de winget está desactualizado respecto del instalador que " +
+                "publica el fabricante.", code);
+        }
+
         if (value == WingetErrorCodes.NoApplicableInstaller)
         {
             return new WingetResult(packageId, WingetOutcome.NoApplicableInstaller,
@@ -205,17 +214,52 @@ public static class WingetResultParser
         stdout.Contains("ya está instalado", StringComparison.OrdinalIgnoreCase) ||
         stdout.Contains("No newer package versions", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Primera línea con contenido real de un texto.
+    /// </summary>
+    /// <remarks>
+    /// winget escribe caracteres de animación de progreso (<c>-</c>, <c>\</c>, <c>|</c>, <c>/</c>,
+    /// bloques) en su salida. En un equipo real el detalle de un fallo terminó siendo literalmente
+    /// «-», que no le dice nada a nadie. Esas líneas se descartan.
+    /// </remarks>
     private static string? FirstMeaningfulLine(string text)
     {
         foreach (string line in text.Split('\n'))
         {
             string trimmed = line.Trim();
-            if (trimmed.Length > 0)
+
+            // Se descartan las líneas que son SOLO animación de progreso, sin recortar el contenido
+            // de las que sí tienen mensaje: un "Access is denied." no debe perder su punto final.
+            if (trimmed.Length == 0 || IsProgressNoise(trimmed))
             {
-                return trimmed.Length <= 200 ? trimmed : trimmed[..200] + "…";
+                continue;
             }
+
+            return trimmed.Length <= 200 ? trimmed : trimmed[..200] + "…";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// <c>true</c> si la línea solo tiene caracteres de animación de progreso.
+    /// </summary>
+    /// <remarks>
+    /// winget dibuja un spinner y una barra de progreso en stdout. En un equipo real el detalle de un
+    /// fallo terminó siendo literalmente «-», que no le dice nada a nadie.
+    /// </remarks>
+    private static bool IsProgressNoise(string line)
+    {
+        const string NoiseChars = @"-\|/█▒░.  ";
+
+        foreach (char c in line)
+        {
+            if (!NoiseChars.Contains(c, StringComparison.Ordinal) && !char.IsWhiteSpace(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

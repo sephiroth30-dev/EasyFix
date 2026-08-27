@@ -124,15 +124,22 @@ public sealed class DirectDownloadInstaller
         {
             progress?.Report($"Instalando {package.Name}…");
 
+            // Timeout propio del paquete, mucho menor que el general de 30 min: ese está pensado
+            // para DISM. Un instalador colgado bloquea toda la tanda.
+            TimeSpan timeout = TimeSpan.FromMinutes(Math.Max(1, direct.TimeoutMinutes));
+
+            (string executable, IReadOnlyList<string> arguments) = BuildInvocation(installerPath, direct);
+
             ProcessResult result = await _runner
-                .RunAsync(installerPath, direct.SilentArgs ?? Array.Empty<string>(),
-                    _thresholds.ExternalProcessTimeout, ct)
+                .RunAsync(executable, arguments, timeout, ct)
                 .ConfigureAwait(false);
 
             if (result.TimedOut)
             {
                 return new WingetResult(package.Id, WingetOutcome.TimedOut,
-                    $"El instalador de {package.Name} excedió el tiempo límite.", null);
+                    $"El instalador de {package.Name} no terminó en {timeout.TotalMinutes:0} minutos y " +
+                    "se canceló. Puede haber abierto una ventana esperando confirmación, o el " +
+                    "argumento de instalación silenciosa no ser el correcto para esta versión.", null);
             }
 
             return result.Succeeded
@@ -155,6 +162,27 @@ public sealed class DirectDownloadInstaller
         if (direct.GitHubRepository is { Length: > 0 } repo)
         {
             progress?.Report($"Buscando la última versión en GitHub ({repo})…");
+
+            // El patrón preferido se intenta primero: sirve para elegir el MSI cuando existe, que se
+            // instala en silencio de forma más confiable que un EXE.
+            if (direct.PreferredAssetPattern is { Length: > 0 } preferred)
+            {
+                Uri? better = await _downloader
+                    .ResolveGitHubLatestAsync(repo, preferred, ct)
+                    .ConfigureAwait(false);
+
+                if (better is not null)
+                {
+                    _logger.LogInformation(
+                        "{Repo}: se usa el asset preferido que coincide con '{Pattern}'.", repo, preferred);
+                    return better;
+                }
+
+                _logger.LogInformation(
+                    "{Repo}: no hay asset que coincida con '{Pattern}'; se cae al patrón normal.",
+                    repo, preferred);
+            }
+
             return await _downloader
                 .ResolveGitHubLatestAsync(repo, direct.AssetPattern ?? ".exe", ct)
                 .ConfigureAwait(false);
@@ -167,6 +195,35 @@ public sealed class DirectDownloadInstaller
     /// Nombre de archivo seguro. El nombre viene de la URL, así que se sanea: nunca se construye una
     /// ruta con texto de la red sin filtrarlo.
     /// </summary>
+    /// <summary>
+    /// Decide qué ejecutar: el instalador directamente, o msiexec cuando el asset es un MSI.
+    /// </summary>
+    /// <remarks>
+    /// Un MSI no es ejecutable: hay que lanzarlo con <c>msiexec /i &lt;archivo&gt; /qn</c>. Se prefiere
+    /// cuando existe porque su instalación silenciosa es determinista, a diferencia de los EXE que
+    /// dependen del empaquetador que usó el fabricante.
+    /// </remarks>
+    private static (string Executable, IReadOnlyList<string> Arguments) BuildInvocation(
+        string installerPath, DirectDownload direct)
+    {
+        if (!DirectDownload.IsMsi(installerPath))
+        {
+            return (installerPath, direct.SilentArgs ?? Array.Empty<string>());
+        }
+
+        var arguments = new List<string> { "/i", installerPath, "/qn", "/norestart" };
+
+        // Los argumentos configurados se agregan después: permiten pasar propiedades del MSI.
+        if (direct.SilentArgs is { Count: > 0 } extra)
+        {
+            arguments.AddRange(extra);
+        }
+
+        return (
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msiexec.exe"),
+            arguments);
+    }
+
     private static string SafeFileName(string packageId, Uri url)
     {
         string fromUrl = Path.GetFileName(url.LocalPath);

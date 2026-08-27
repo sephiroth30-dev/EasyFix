@@ -167,6 +167,29 @@ public sealed record DirectDownload
     public string? AssetPattern { get; init; }
 
     public IReadOnlyList<string>? SilentArgs { get; init; }
+
+    /// <summary>
+    /// Patrón alternativo, que se intenta primero. Sirve para preferir un MSI sobre un EXE.
+    /// </summary>
+    /// <remarks>
+    /// El instalador EXE de RustDesk con <c>--silent-install</c> se quedó colgado 40 minutos en un
+    /// equipo real. Su propia documentación recomienda el MSI, que con <c>/qn</c> es determinista.
+    /// </remarks>
+    public string? PreferredAssetPattern { get; init; }
+
+    /// <summary>
+    /// Minutos que se le dan al instalador.
+    /// </summary>
+    /// <remarks>
+    /// Por defecto 8, no los 30 del timeout general: ese está pensado para DISM. Un instalador que
+    /// tarda más de ocho minutos está colgado, y esperarlo bloquea toda la tanda — pasó exactamente
+    /// eso con RustDesk.
+    /// </remarks>
+    public int TimeoutMinutes { get; init; } = 8;
+
+    /// <summary><c>true</c> si el asset a instalar es un MSI y hay que lanzarlo con msiexec.</summary>
+    public static bool IsMsi(string path) =>
+        Path.GetExtension(path).Equals(".msi", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Marca del técnico. Aparece en la ventana, en el informe y en el journal.</summary>

@@ -56,6 +56,24 @@ public static class WingetErrorCodes
     /// <summary><c>APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES</c>.</summary>
     public const int FailedToOpenAllSources = unchecked((int)0x8A150019);
 
+    /// <summary>
+    /// <c>APPINSTALLER_CLI_ERROR_INSTALLER_HASH_MISMATCH</c> — el instalador descargado no coincide
+    /// con el hash del manifiesto.
+    /// </summary>
+    /// <remarks>
+    /// Verificado en un equipo real: Google Chrome falló con este código. Suele ser una descarga
+    /// corrupta, así que <b>merece reintento</b>. Si persiste, el manifiesto del repositorio está
+    /// desactualizado respecto del instalador que publica el fabricante y no hay nada que hacer del
+    /// lado del equipo.
+    /// </remarks>
+    public const int InstallerHashMismatch = unchecked((int)0x8A150011);
+
+    /// <summary>
+    /// Códigos que valen la pena reintentar: fallos transitorios de red o de descarga.
+    /// </summary>
+    public static bool IsWorthRetrying(int code) =>
+        code == InstallerHashMismatch;
+
     /// <summary>Códigos que indican que el catálogo no se puede leer y conviene repararlo.</summary>
     public static bool IsSourceProblem(int code) =>
         code == SourceDataMissing || code == FailedToOpenAllSources;

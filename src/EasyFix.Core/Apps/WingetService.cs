@@ -156,6 +156,15 @@ public sealed class WingetService
                             result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
                         }
                     }
+                    else if (result.ExitCode is int code && WingetErrorCodes.IsWorthRetrying(code))
+                    {
+                        // Fallo transitorio: descarga dañada. Un reintento resuelve la mayoría.
+                        _logger.LogInformation(
+                            "{Package} falló con {Code}, que suele ser transitorio. Reintentando una vez.",
+                            package.Id, $"0x{code:X8}");
+
+                        result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+                    }
                 }
             }
 

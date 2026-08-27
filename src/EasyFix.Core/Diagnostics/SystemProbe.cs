@@ -114,6 +114,21 @@ public sealed class SystemProbe
         @"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
     };
 
+    /// <summary>
+    /// Sondas que necesitan más tiempo que el resto.
+    /// </summary>
+    /// <remarks>
+    /// Las clases <c>Win32_PerfFormattedData_*</c> tienen que inicializar el subsistema de contadores
+    /// de rendimiento en la primera consulta, y eso tarda más de 5 segundos. En los dos equipos
+    /// probados <c>disk.latency</c> y <c>memory.pressure</c> dieron timeout siempre, así que esos dos
+    /// datos nunca llegaban al reporte.
+    /// </remarks>
+    private static readonly Dictionary<string, TimeSpan> SlowProbes = new(StringComparer.Ordinal)
+    {
+        ["disk.latency"] = TimeSpan.FromSeconds(25),
+        ["memory.pressure"] = TimeSpan.FromSeconds(25),
+    };
+
     private readonly ILogger<SystemProbe> _logger;
     private readonly TimeSpan _perProbeTimeout;
 
@@ -198,15 +213,17 @@ public sealed class SystemProbe
         {
             // Las APIs de WMI son sincrónicas y bloqueantes: van a un hilo del pool para no
             // congelar la interfaz, con timeout propio.
+            TimeSpan budget = SlowProbes.TryGetValue(id, out TimeSpan slow) ? slow : _perProbeTimeout;
+
             Task<Func<SystemSnapshot, SystemSnapshot>> work = Task.Run(run, ct);
-            Task finished = await Task.WhenAny(work, Task.Delay(_perProbeTimeout, ct)).ConfigureAwait(false);
+            Task finished = await Task.WhenAny(work, Task.Delay(budget, ct)).ConfigureAwait(false);
 
             if (finished != work)
             {
                 // La consulta sigue corriendo en su hilo; se abandona. Es el caso de SMART colgado
                 // en discos que están fallando, que es justo cuando más importa no bloquearse.
                 Record(failures, sync, new CheckFailure(
-                    id, $"No se pudo determinar: tardó más de {_perProbeTimeout.TotalSeconds:0} s.", true));
+                    id, $"No se pudo determinar: tardó más de {budget.TotalSeconds:0} s.", true));
                 return null;
             }
 
@@ -524,10 +541,26 @@ public sealed class SystemProbe
         }
     }
 
+    /// <summary>
+    /// Lee el tiempo del último arranque y cuánto lo retrasaron los programas de inicio.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Dos correcciones respecto de la primera versión</b>, que en un equipo real reportó
+    /// «814 s de retraso» sobre un arranque de 27 s — un número absurdo que destruye la credibilidad
+    /// de todo el reporte:</para>
+    ///
+    /// <list type="number">
+    /// <item>Se usa <c>DegradationTime</c>, no <c>TotalTime</c>. <c>TotalTime</c> es lo que tardó la
+    /// app en total; la <i>degradación</i> es cuánto de eso retrasó el arranque. Sumar totales cuenta
+    /// tiempo que ocurrió en paralelo.</item>
+    /// <item>Solo se cuentan los eventos <b>del último arranque</b>. Antes se sumaban hasta 40
+    /// eventos de todo el historial, así que el número crecía con la antigüedad del equipo.</item>
+    /// </list>
+    /// </remarks>
     private static Func<SystemSnapshot, SystemSnapshot> ProbeBootTime()
     {
         int? mainPath = null;
-        int? degradation = null;
+        DateTime? lastBoot = null;
 
         var query = new EventLogQuery(PerformanceLog, PathType.LogName, "*[System[(EventID=100)]]")
         {
@@ -540,31 +573,59 @@ public sealed class SystemProbe
             if (record is not null)
             {
                 mainPath = EventDataInt(record, "MainPathBootTime");
+                lastBoot = record.TimeCreated;
             }
         }
 
-        // Degradación por app: eventos 101 (aplicación) y 103 (servicio) del último arranque.
-        var degradationQuery = new EventLogQuery(
-            PerformanceLog, PathType.LogName, "*[System[(EventID=101 or EventID=103)]]")
-        {
-            ReverseDirection = true,
-        };
+        // Sin la marca del último arranque no se puede acotar la ventana, y sumar todo el historial
+        // da un número sin sentido. Se prefiere no informar antes que informar mal.
+        int? degradation = null;
 
-        int total = 0;
-        int read = 0;
-        using (var reader = new EventLogReader(degradationQuery))
+        if (lastBoot is DateTime bootTime)
         {
-            while (read < 40)
+            var degradationQuery = new EventLogQuery(
+                PerformanceLog, PathType.LogName, "*[System[(EventID=101 or EventID=103)]]")
+            {
+                ReverseDirection = true,
+            };
+
+            int total = 0;
+            int counted = 0;
+            int inspected = 0;
+
+            using var reader = new EventLogReader(degradationQuery);
+
+            while (inspected < 200)
             {
                 using EventRecord? record = reader.ReadEvent();
                 if (record is null) { break; }
 
-                read++;
-                total += EventDataInt(record, "TotalTime") ?? 0;
+                inspected++;
+
+                if (record.TimeCreated is not DateTime when)
+                {
+                    continue;
+                }
+
+                // Van del más nuevo al más viejo. Los eventos del arranque llegan poco después del
+                // evento 100; en cuanto se cruza esa marca, el resto es de arranques anteriores.
+                if (when < bootTime)
+                {
+                    break;
+                }
+
+                if (EventDataInt(record, "DegradationTime") is int ms && ms > 0)
+                {
+                    total += ms;
+                    counted++;
+                }
+            }
+
+            if (counted > 0)
+            {
+                degradation = total;
             }
         }
-
-        if (read > 0) { degradation = total; }
 
         return s => s with { MainPathBootTimeMs = mainPath, StartupDegradationMs = degradation };
     }

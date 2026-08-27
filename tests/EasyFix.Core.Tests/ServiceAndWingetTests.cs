@@ -311,6 +311,44 @@ public sealed class WingetResultParserTests
     }
 
     [Fact]
+    public void HashMismatch_ExplicaQueEsTransitorioYSeReintenta()
+    {
+        // 0x8A150011 verificado en un equipo real: Chrome falló con este código. Es una descarga
+        // dañada, así que el servicio lo reintenta una vez antes de darlo por perdido.
+        WingetResult result = WingetResultParser.Parse(
+            "Google.Chrome", Result(WingetErrorCodes.InstallerHashMismatch));
+
+        Assert.Equal(WingetOutcome.Failed, result.Outcome);
+        Assert.Contains("descargó dañado", result.Detail, StringComparison.Ordinal);
+        Assert.True(WingetErrorCodes.IsWorthRetrying(WingetErrorCodes.InstallerHashMismatch));
+    }
+
+    [Theory]
+    [InlineData("-")]
+    [InlineData("  \\  ")]
+    [InlineData("|")]
+    [InlineData("████▒▒░░")]
+    [InlineData("...")]
+    public void LaAnimacionDeProgresoNoSeUsaComoMensajeDeError(string noise)
+    {
+        // En un equipo real el detalle de un fallo terminó siendo literalmente "-", porque winget
+        // dibuja un spinner en stdout y se tomaba como la primera línea útil.
+        WingetResult result = WingetResultParser.Parse("X.Y", Result(1, stdout: noise));
+
+        Assert.DoesNotContain(noise.Trim(), result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnMensajeRealConservaSuPuntuacion()
+    {
+        // El filtro de animación no debe recortar contenido: "Access is denied." conserva su punto.
+        WingetResult result = WingetResultParser.Parse(
+            "X.Y", Result(1, stderr: "Access is denied."));
+
+        Assert.Contains("Access is denied.", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Timeout_SeDistingueYAvisaQuePudoQuedarAMedias()
     {
         WingetResult result = WingetResultParser.Parse("Big.Package", Result(null, timedOut: true));
