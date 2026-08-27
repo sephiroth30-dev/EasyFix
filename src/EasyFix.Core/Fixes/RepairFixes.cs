@@ -35,6 +35,9 @@ public abstract class ProcessFix : IFix
     public abstract string Description { get; }
     public abstract FixTier Tier { get; }
 
+    /// <summary>Los fixes basados en procesos de Windows son todos de reparación.</summary>
+    public virtual FixCategory Category => FixCategory.Repair;
+
     public virtual bool RequiresReboot => false;
     public virtual bool TouchesBootOrDisk => false;
     public virtual bool IsReversible => false;

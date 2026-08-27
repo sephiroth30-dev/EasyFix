@@ -107,10 +107,21 @@ public partial class App : Application
         // journal sí registraba: honesto, pero inútil.
         services.AddSingleton<IUndoHandler, RegistryValueUndoHandler>();
         services.AddSingleton<IUndoHandler, RegistryValueDeleteUndoHandler>();
+        services.AddSingleton<IUndoHandler, RegistryBinaryValueUndoHandler>();
+        services.AddSingleton<IUndoHandler, PowerPlanUndoHandler>();
         services.AddSingleton<IUndoHandler, BitLockerResumeUndoHandler>();
 
-        // El ORDEN importa: se aplican en este orden. Primero lo que repara, después lo que mide,
-        // y al final lo que puede requerir revertir una actualización.
+        services.AddSingleton<StartupEntryReader>();
+
+        // Rendimiento («Mejorar rendimiento»). Orden: primero lo que libera espacio, después lo que
+        // toca configuración.
+        services.AddSingleton<IFix, TempCleanupFix>();
+        services.AddSingleton<IFix, StartupDisableFix>();
+        services.AddSingleton<IFix, DiskOptimizationFix>();
+        services.AddSingleton<IFix, PowerPlanFix>();
+
+        // Reparación («Reparar errores»). Primero lo que repara, después lo que mide, y al final lo
+        // que puede requerir revertir una actualización.
         services.AddSingleton<IFix, SystemFileRepairFix>();
         services.AddSingleton<IFix, DiskCheckFix>();
         services.AddSingleton<IFix, WindowsUpdateResetFix>();

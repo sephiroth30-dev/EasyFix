@@ -92,7 +92,10 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         AnalyzeCommand = new AsyncRelayCommand(AnalyzeAsync);
-        RepairCommand = new AsyncRelayCommand(RepairAsync, () => !IsBusy);
+        ImproveCommand = new AsyncRelayCommand(
+            () => RunFixesAsync(FixCategory.Performance), () => !IsBusy);
+        RepairCommand = new AsyncRelayCommand(
+            () => RunFixesAsync(FixCategory.Repair), () => !IsBusy);
         RunInstallCommand = new AsyncRelayCommand(InstallSelectedAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
         BackCommand = new RelayCommand(() => CurrentScreen = Screen.Home);
@@ -113,6 +116,7 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public IAsyncRelayCommand AnalyzeCommand { get; }
+    public IAsyncRelayCommand ImproveCommand { get; }
     public IAsyncRelayCommand RepairCommand { get; }
     public IAsyncRelayCommand RunInstallCommand { get; }
     public IRelayCommand CancelCommand { get; }
@@ -144,6 +148,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnIsBusyChanged(bool value)
     {
+        ImproveCommand.NotifyCanExecuteChanged();
         RepairCommand.NotifyCanExecuteChanged();
         RunInstallCommand.NotifyCanExecuteChanged();
         DiagnoseWingetCommand.NotifyCanExecuteChanged();
@@ -416,6 +421,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _allowWithoutRestorePoint;
 
+    /// <summary>Título de la pantalla de progreso: cambia según qué se esté aplicando.</summary>
+    [ObservableProperty]
+    private string _runningCategoryLabel = "Trabajando…";
+
     [ObservableProperty]
     private string? _installProgressLabel;
 
@@ -556,13 +565,29 @@ public sealed partial class MainViewModel : ObservableObject
     /// disco fallando aborta, sin punto de restauración aborta, BitLocker sin confirmar bloquea lo
     /// que toca arranque o disco.
     /// </summary>
-    private async Task RepairAsync()
+    /// <summary>
+    /// Aplica los fixes de una categoría. «Mejorar rendimiento» y «Reparar errores» usan el mismo
+    /// motor y las mismas compuertas de seguridad; solo cambia qué fixes se le pasan.
+    /// </summary>
+    private async Task RunFixesAsync(FixCategory category)
     {
         if (_lastProbe is null)
         {
             SetStatus("Primero hay que analizar el equipo.", warning: true);
             return;
         }
+
+        List<IFix> selected = _fixes.Where(f => f.Category == category).ToList();
+
+        if (selected.Count == 0)
+        {
+            SetStatus("No hay ninguna acción implementada en esta categoría todavía.", warning: true);
+            return;
+        }
+
+        RunningCategoryLabel = category == FixCategory.Performance
+            ? "Mejorando el rendimiento…"
+            : "Reparando el equipo…";
 
         RepairRows.Clear();
         StatusMessage = null;
@@ -593,7 +618,7 @@ public sealed partial class MainViewModel : ObservableObject
                 sink);
 
             RunResult result = await _fixRunner.RunAsync(
-                _fixes.ToList(),
+                selected,
                 _lastProbe.Snapshot,
                 _lastCrash,
                 journal,

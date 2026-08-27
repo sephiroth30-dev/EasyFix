@@ -17,6 +17,56 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.6.0] — 2026-08-27
+
+Se conecta «Mejorar rendimiento». Los tres componentes que estaban escritos y probados pero sin usar
+—50 tests entre ellos— ahora tienen un `IFix` que los invoca.
+
+### Agregado
+
+- **Botón «Mejorar rendimiento»**, separado de «Reparar errores». `FixCategory` divide los fixes en
+  dos familias porque son cosas distintas: mejorar tarda minutos, reparar puede tardar una hora.
+  Meterlos en un botón obligaría a esperar DISM para limpiar temporales.
+- **`TempCleanupFix`** — conecta `JunctionSafeCleaner`. Limpia los temporales del usuario y del
+  sistema saltando los archivos de menos de una hora, por si hay un instalador corriendo. Es la única
+  acción de esta categoría que **no se puede deshacer**, y se dice así.
+- **`StartupDisableFix`** — conecta `StartupClassifier`. Desactiva los programas de arranque que la
+  lista blanca autoriza, escribiendo el flag de `StartupApproved`: el mismo mecanismo del
+  Administrador de tareas. **No borra la clave `Run`**, así el usuario puede volver a habilitarlo
+  desde Windows y el cambio es visible.
+- **`StartupEntryReader`** — la pieza que le faltaba al clasificador: lee las claves `Run`, extrae la
+  ruta del ejecutable de la línea de comandos, obtiene el publisher del certificado y valida su
+  cadena, y consulta `root\SecurityCenter2` para la Capa 1.
+- **`PowerPlanFix`** — pasa a Alto rendimiento, guardando el GUID anterior. Requiere aprobación
+  porque en un portátil afecta la batería.
+- **`DiskOptimizationFix`** — TRIM en SSD, desfragmentación programada en mecánico. **Se niega a
+  actuar si no pudo determinar el tipo de disco**: el tratamiento correcto es opuesto en cada caso, y
+  desfragmentar un SSD desgasta celdas sin ningún beneficio.
+- **Dos `IUndoHandler` nuevos**: flag binario de `StartupApproved` y plan de energía. Sin ellos los
+  fixes nuevos habrían registrado pasos de deshacer que nadie podía ejecutar.
+
+### Sobre la validación de firma
+
+`StartupEntryReader` obtiene el certificado del binario y valida su cadena con `X509Chain`. Eso **no
+es exactamente la política Authenticode** —para eso haría falta `WinVerifyTrust` por P/Invoke— pero
+verifica lo que importa: que el certificado encadene a una raíz de confianza del equipo y no esté
+vencido. Un binario sin firma válida cae en Capa 3 y **nunca se desactiva solo**, que es la garantía
+que sostiene todo el diseño.
+
+### Estado de las pruebas
+
+| Componente | Estado |
+|---|---|
+| Los 4 fixes de rendimiento | ❌ **nunca ejecutados** |
+| `StartupEntryReader` | ❌ la lectura del registro y de firmas, **sin ejecutar** |
+| Botón de deshacer | ❌ agregado en 0.5.0, **sin probar** |
+| Chrome por MSI oficial | ❌ **sin probar** |
+| RustDesk por MSI | ❌ **sin probar** |
+
+Nada de esta versión se ejecutó todavía. La lógica de decisión está probada; lo que toca Windows, no.
+
+---
+
 ## [0.5.0] — 2026-08-27
 
 Se conecta el botón de deshacer. Antes el journal registraba todo y `UndoEngine` funcionaba, pero

@@ -94,6 +94,37 @@ vez de los 30 min generales. Si uno se cuelga, ya no bloquea toda la tanda.
 
 ---
 
+## Nivel 2.5 — Mejorar rendimiento · MODIFICA el equipo
+
+> **Advertencia.** Borra archivos temporales de forma **no reversible** y desactiva programas de
+> arranque. Lo segundo sí se puede deshacer; lo primero no.
+
+Es más rápido que reparar —minutos, no una hora— y es lo que más se nota en un equipo lento.
+
+1. [ ] Analizar el equipo primero.
+2. [ ] **«Mejorar rendimiento»**. Debería tardar unos minutos, no cuarenta.
+3. [ ] Mirar el resultado, fix por fix:
+
+| Fix | Qué esperar |
+|---|---|
+| Limpiar archivos temporales | MB liberados. Si encontró enlaces, lo dice: **es la protección funcionando** |
+| Quitar programas del inicio | Los que desactivó, y cuántos quedaron esperando tu confirmación |
+| Ajustar el disco a su tipo | TRIM en SSD, desfragmentación en mecánico. **Nunca desfragmentar un SSD** |
+| Plan de energía | Requiere aprobación; en portátil afecta la batería |
+
+4. [ ] **Verificar en el Administrador de tareas → Inicio** que los programas que dice haber quitado
+       aparezcan como «Deshabilitado». Eso confirma que escribió el flag correcto.
+5. [ ] Probar el **deshacer** y verificar que esos programas vuelven a «Habilitado».
+
+### Lo que hay que mirar con cuidado
+
+- ¿Desactivó algo que **no** debía? Antivirus, driver de audio, VPN, panel de la placa de video. Si
+  pasa, es un fallo grave del clasificador y hay que reportarlo con el nombre exacto del programa.
+- ¿Dejó en «necesita confirmación» algo que sí es seguro? Menos grave, pero indica que falta en la
+  lista blanca de `appsettings.json`.
+
+---
+
 ## Nivel 3 — Reparar · MODIFICA el sistema
 
 > **Advertencia.** Este nivel corre DISM, `sfc` y `chkdsk`, puede desinstalar una actualización de

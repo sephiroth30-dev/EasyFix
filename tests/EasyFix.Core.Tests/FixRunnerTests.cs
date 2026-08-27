@@ -90,6 +90,7 @@ public sealed class FixRunnerTests
         public string Id { get; }
         public string DisplayName => Id;
         public string Description => Id;
+        public FixCategory Category => FixCategory.Repair;
         public FixTier Tier { get; }
         public bool RequiresReboot => false;
         public bool TouchesBootOrDisk { get; }
@@ -507,6 +508,7 @@ public sealed class FixRunnerTests
         public string Id => "comprobacion-rota";
         public string DisplayName => Id;
         public string Description => Id;
+        public FixCategory Category => FixCategory.Repair;
         public FixTier Tier => FixTier.SafeAuto;
         public bool RequiresReboot => false;
         public bool TouchesBootOrDisk => false;

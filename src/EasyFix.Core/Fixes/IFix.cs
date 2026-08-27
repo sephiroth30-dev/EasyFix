@@ -3,6 +3,21 @@ using EasyFix.Core.Rollback;
 
 namespace EasyFix.Core.Fixes;
 
+/// <summary>A qué botón pertenece un fix.</summary>
+/// <remarks>
+/// «Mejorar rendimiento» y «Reparar errores» son cosas distintas y el técnico las elige por separado:
+/// mejorar tarda minutos y optimiza; reparar puede tardar una hora y deshace deterioro. Meterlos en un
+/// solo botón obligaría a esperar DISM para limpiar temporales.
+/// </remarks>
+public enum FixCategory
+{
+    /// <summary>Limpieza, programas de inicio, plan de energía. Minutos.</summary>
+    Performance,
+
+    /// <summary>DISM, sfc, chkdsk, red, Windows Update. Hasta una hora.</summary>
+    Repair,
+}
+
 public enum FixTier
 {
     /// <summary>Se aplica solo, con el click de «Reparar». Seguro y reversible, o sin efecto lateral.</summary>
@@ -112,6 +127,9 @@ public interface IFix
     string Id { get; }
 
     string DisplayName { get; }
+
+    /// <summary>A qué botón pertenece.</summary>
+    FixCategory Category { get; }
 
     /// <summary>Qué pasa si se aplica, en español, para mostrárselo al técnico antes.</summary>
     string Description { get; }

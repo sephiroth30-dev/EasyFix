@@ -131,6 +131,118 @@ public sealed class RegistryValueDeleteUndoHandler : IUndoHandler
 }
 
 /// <summary>
+/// Restaura el flag binario de <c>StartupApproved</c>, devolviendo un programa al inicio.
+/// </summary>
+/// <remarks>
+/// El flag son 12 bytes cuyo primer valor decide si el programa arranca con Windows. Se guarda en
+/// hexadecimal en el journal y se repone tal cual: no se reconstruye, se restaura lo que había.
+/// </remarks>
+[SupportedOSPlatform("windows")]
+public sealed class RegistryBinaryValueUndoHandler : IUndoHandler
+{
+    private readonly ILogger<RegistryBinaryValueUndoHandler> _logger;
+
+    public RegistryBinaryValueUndoHandler(ILogger<RegistryBinaryValueUndoHandler> logger)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        _logger = logger;
+    }
+
+    public UndoKind Kind => UndoKind.RegistryBinaryValue;
+
+    public Task<bool> UndoAsync(UndoStep step, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(step);
+
+        string hive = step.Require("hive");
+        string path = step.Require("path");
+        string name = step.Require("name");
+        string hex = step.Require("valueHex");
+
+        try
+        {
+            byte[] value = Convert.FromHexString(hex);
+
+            using RegistryKey? key = RegistryValueUndoHandler.OpenHive(hive)?.OpenSubKey(path, writable: true);
+            if (key is null)
+            {
+                _logger.LogWarning("No se pudo abrir {Hive}\\{Path} para restaurar {Name}.", hive, path, name);
+                return Task.FromResult(false);
+            }
+
+            key.SetValue(name, value, RegistryValueKind.Binary);
+
+            _logger.LogInformation(
+                "Restaurado el flag de inicio {Hive}\\{Path}\\{Name}.", hive, path, name);
+            return Task.FromResult(true);
+        }
+        catch (FormatException ex)
+        {
+            _logger.LogError(ex, "El valor guardado para {Name} no es hexadecimal válido.", name);
+            return Task.FromResult(false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        {
+            _logger.LogError(ex, "Falló la restauración de {Hive}\\{Path}\\{Name}.", hive, path, name);
+            return Task.FromResult(false);
+        }
+    }
+}
+
+/// <summary>
+/// Vuelve al plan de energía anterior.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class PowerPlanUndoHandler : IUndoHandler
+{
+    private readonly Abstractions.IProcessRunner _runner;
+    private readonly ILogger<PowerPlanUndoHandler> _logger;
+
+    public PowerPlanUndoHandler(Abstractions.IProcessRunner runner, ILogger<PowerPlanUndoHandler> logger)
+    {
+        ArgumentNullException.ThrowIfNull(runner);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _runner = runner;
+        _logger = logger;
+    }
+
+    public UndoKind Kind => UndoKind.PowerPlan;
+
+    public async Task<bool> UndoAsync(UndoStep step, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(step);
+
+        string scheme = step.Require("scheme");
+
+        // El GUID viene del journal, que lo leyó del registro. Se valida igual antes de pasarlo a un
+        // proceso: nunca se construye una línea de comandos con un valor sin verificar.
+        if (!Guid.TryParse(scheme, out Guid parsed))
+        {
+            _logger.LogError("'{Scheme}' no es un GUID de plan de energía válido.", scheme);
+            return false;
+        }
+
+        Abstractions.ProcessResult result = await _runner
+            .RunAsync(
+                Processes.SafeProcessRunner.System32("powercfg.exe"),
+                new[] { "/setactive", parsed.ToString() },
+                TimeSpan.FromMinutes(1),
+                ct)
+            .ConfigureAwait(false);
+
+        if (result.Succeeded)
+        {
+            _logger.LogInformation("Plan de energía restaurado a {Scheme}.", parsed);
+            return true;
+        }
+
+        _logger.LogWarning("No se pudo restaurar el plan de energía (código {Code}).", result.ExitCode);
+        return false;
+    }
+}
+
+/// <summary>
 /// Reactiva la protección de BitLocker que se había suspendido.
 /// </summary>
 /// <remarks>

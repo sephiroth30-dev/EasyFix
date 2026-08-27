@@ -5,7 +5,7 @@ equipo, aplica las mejoras seguras con un click, instala el software base y repa
 comunes del sistema. Todo reversible.
 
 **Estado: compila y los tests pasan.** `dotnet build` limpio en los tres proyectos —incluido el de
-WPF— y **335 tests pasan, 2 se omiten** (los que dependen de Windows).
+WPF— y **352 tests pasan, 2 se omiten** (los que dependen de Windows).
 
 | Componente | Estado |
 |---|---|
@@ -142,7 +142,7 @@ export PATH="$HOME/.dotnet:$PATH"
 ```bash
 git clone <repo> && cd EasyFix
 dotnet build          # los tres proyectos, incluido el de WPF
-dotnet test           # 335 pasan, 2 se omiten fuera de Windows
+dotnet test           # 352 pasan, 2 se omiten fuera de Windows
 ```
 
 ```bash

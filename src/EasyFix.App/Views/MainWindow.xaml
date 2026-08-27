@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="EasyFix"
-        Height="620" Width="460"
+        Height="700" Width="460"
         WindowStyle="None"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -164,6 +164,16 @@
                         </StackPanel>
                     </Button>
 
+                    <Button Style="{StaticResource ActionButton}" Command="{Binding ImproveCommand}"
+                            Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Mejorar rendimiento" FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" />
+                            <TextBlock Text="Limpia temporales, quita programas del inicio y ajusta el disco y la energía. Unos minutos."
+                                       Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </Button>
+
                     <Button Style="{StaticResource ActionButton}" Command="{Binding RepairCommand}"
                             Margin="0,0,0,10">
                         <StackPanel>
@@ -301,8 +311,11 @@
                     <StackPanel Orientation="Horizontal">
                         <Button Content="Volver" Command="{Binding BackCommand}"
                                 Style="{StaticResource GhostButton}" Width="100" />
-                        <Button Content="Reparar el equipo" Command="{Binding RepairCommand}"
+                        <Button Content="Mejorar" Command="{Binding ImproveCommand}"
                                 Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
+                        <Button Content="Reparar" Command="{Binding RepairCommand}"
+                                Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                                 IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
                     </StackPanel>
                 </StackPanel>
@@ -361,7 +374,7 @@
             <!-- ===== 5. Reparando ===== -->
             <StackPanel Grid.Row="1" Margin="20,4,20,20" VerticalAlignment="Top"
                         Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Repairing}">
-                <TextBlock Text="Reparando el equipo…" Style="{StaticResource TitleText}"
+                <TextBlock Text="{Binding RunningCategoryLabel}" Style="{StaticResource TitleText}"
                            FontSize="15" Margin="0,4,0,4" />
                 <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource MutedText}"
                            FontSize="12.5" Margin="0,0,0,16" />
