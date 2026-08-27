@@ -262,6 +262,7 @@ dentro de `%TEMP%` apuntando a `Documents` convertiría la limpieza en borrado d
 | [`docs/PRUEBAS.md`](docs/PRUEBAS.md) | Qué probar en Windows, en qué orden, y qué capturar cuando algo falla |
 | [`docs/PLAN.md`](docs/PLAN.md) | Documento de trabajo: estado actual, decisiones, qué falta y en qué orden |
 | [`CHANGELOG.md`](CHANGELOG.md) | Versiones, con el resultado de cada prueba real |
+| [`docs/RESUMEN-PARA-WEB.md`](docs/RESUMEN-PARA-WEB.md) | Resumen autocontenido para pasar a alguien que no conoce el proyecto (web, marketing) |
 
 La versión vive en `Directory.Build.props` — un solo lugar. Se ve en la barra de título de la app y en
 Propiedades → Detalles del `.exe`.
