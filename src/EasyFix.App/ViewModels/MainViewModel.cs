@@ -140,8 +140,41 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _statusIsWarning;
 
+    /// <summary>Qué se está haciendo ahora, en una frase corta.</summary>
     [ObservableProperty]
     private string _progressLabel = string.Empty;
+
+    /// <summary>Sublínea con el detalle del paso actual.</summary>
+    [ObservableProperty]
+    private string? _progressDetail;
+
+    /// <summary>Avance de 0 a 100 para la barra.</summary>
+    [ObservableProperty]
+    private double _progressPercent;
+
+    /// <summary>"Paso 2 de 5" — le da al usuario una noción de cuánto falta.</summary>
+    [ObservableProperty]
+    private string? _progressStep;
+
+    /// <summary>
+    /// <c>true</c> mientras no se pueda calcular el avance real.
+    /// </summary>
+    /// <remarks>
+    /// Se usa solo al arrancar cada operación, antes del primer reporte. Una barra indeterminada
+    /// permanente no le dice nada al usuario sobre cuánto falta.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _progressIsIndeterminate = true;
+
+    /// <summary>Pone la barra en cero e indeterminada al empezar una operación.</summary>
+    private void ResetProgress(string label)
+    {
+        ProgressLabel = label;
+        ProgressDetail = null;
+        ProgressStep = null;
+        ProgressPercent = 0;
+        ProgressIsIndeterminate = true;
+    }
 
     [ObservableProperty]
     private bool _isBusy;
@@ -266,7 +299,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         IsBusy = true;
-        ProgressLabel = "Revirtiendo cambios…";
+        ResetProgress("Revirtiendo los cambios");
 
         try
         {
@@ -330,6 +363,19 @@ public sealed partial class MainViewModel : ObservableObject
             ProgressLabel = string.Empty;
         }
     }
+
+    /// <summary>Resultado de un paquete en una frase corta, para la línea de progreso.</summary>
+    private static string DescribeOutcome(WingetResult result) => result.Outcome switch
+    {
+        WingetOutcome.Installed => "instalado",
+        WingetOutcome.AlreadyInstalled => "ya estaba",
+        WingetOutcome.NotInCatalog => "no está en el catálogo",
+        WingetOutcome.SourceUnavailable => "sin catálogo de winget",
+        WingetOutcome.WingetMissing => "falta winget",
+        WingetOutcome.TimedOut => "se pasó del tiempo",
+        WingetOutcome.NoApplicableInstaller => "sin instalador compatible",
+        _ => "falló",
+    };
 
     /// <summary>Traduce el id de un fix a algo legible en la pantalla de deshacer.</summary>
     private static string DescribeFix(string fixId) => fixId switch
@@ -438,11 +484,18 @@ public sealed partial class MainViewModel : ObservableObject
         HardwareRows.Clear();
         UndeterminedRows.Clear();
         StatusMessage = null;
-        ProgressLabel = "Iniciando…";
+        ResetProgress("Analizando el equipo");
         CurrentScreen = Screen.Scanning;
 
         ResetCancellation();
-        var progress = new Progress<string>(label => ProgressLabel = label);
+
+        var progress = new Progress<ProbeProgress>(p =>
+        {
+            ProgressIsIndeterminate = false;
+            ProgressPercent = p.Percent;
+            ProgressDetail = p.Current;
+            ProgressStep = $"{p.Completed} de {p.Total} comprobaciones";
+        });
 
         try
         {
@@ -591,12 +644,20 @@ public sealed partial class MainViewModel : ObservableObject
 
         RepairRows.Clear();
         StatusMessage = null;
-        ProgressLabel = "Preparando…";
+        ResetProgress(RunningCategoryLabel);
         IsBusy = true;
         CurrentScreen = Screen.Repairing;
 
         ResetCancellation();
-        var progress = new Progress<string>(label => ProgressLabel = label);
+
+        var progress = new Progress<FixProgress>(p =>
+        {
+            ProgressIsIndeterminate = false;
+            ProgressPercent = p.Percent;
+            ProgressLabel = p.Title;
+            ProgressDetail = p.Detail;
+            ProgressStep = $"Paso {p.Step} de {p.Total}";
+        });
 
         FileJournalSink? sink = null;
         try
@@ -654,6 +715,8 @@ public sealed partial class MainViewModel : ObservableObject
             sink?.Dispose();
             IsBusy = false;
             ProgressLabel = string.Empty;
+            ProgressDetail = null;
+            ProgressStep = null;
         }
     }
 
@@ -738,11 +801,24 @@ public sealed partial class MainViewModel : ObservableObject
 
         var byId = selected.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
 
+        ResetProgress("Instalando programas");
+
         var progress = new Progress<InstallProgress>(p =>
         {
+            ProgressIsIndeterminate = false;
+
+            // El paquete en curso cuenta como medio hecho: así la barra se mueve mientras descarga,
+            // en vez de saltar de golpe al terminar cada uno.
+            ProgressPercent = Math.Clamp(
+                100.0 * (p.Index - 1 + (p.Finished is null ? 0.5 : 1.0)) / p.Total, 0, 100);
+            ProgressStep = $"{p.Index} de {p.Total} programas";
+            ProgressLabel = p.Finished is null
+                ? $"Instalando {p.DisplayName}…"
+                : $"{p.DisplayName}: {DescribeOutcome(p.Finished)}";
+
             InstallProgressLabel = p.Finished is null
-                ? $"({p.Index}/{p.Total}) Descargando e instalando {p.DisplayName}…"
-                : $"({p.Index}/{p.Total}) {p.DisplayName}";
+                ? $"Descargando e instalando {p.DisplayName}…"
+                : null;
 
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
 

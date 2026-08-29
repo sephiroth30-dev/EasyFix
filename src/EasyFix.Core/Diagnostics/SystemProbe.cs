@@ -70,6 +70,15 @@ public sealed record MachineIdentity
 /// Sondas que no se pudieron leer, con el motivo. Se muestran como "no determinado": una sonda que
 /// falló no es evidencia de que el equipo esté sano.
 /// </param>
+/// <summary>Avance del análisis, para poder mostrar una barra que llega al final.</summary>
+/// <param name="Completed">Sondas terminadas.</param>
+/// <param name="Total">Sondas totales.</param>
+/// <param name="Current">Qué se está midiendo ahora, en lenguaje de usuario.</param>
+public sealed record ProbeProgress(int Completed, int Total, string Current)
+{
+    public double Percent => Total <= 0 ? 0 : Math.Clamp(100.0 * Completed / Total, 0, 100);
+}
+
 /// <param name="Crash">Datos de inestabilidad: pantallazos, WHEA, apagones, actualizaciones.</param>
 public sealed record ProbeResult(
     SystemSnapshot Snapshot,
@@ -127,6 +136,11 @@ public sealed class SystemProbe
     {
         ["disk.latency"] = TimeSpan.FromSeconds(25),
         ["memory.pressure"] = TimeSpan.FromSeconds(25),
+
+        // Estas dos dieron timeout en un Pentium G2020 con Windows 11: WMI Storage y el Event Log
+        // son lentos en equipos de gama baja, que son justo los que más se reparan.
+        ["disk.physical"] = TimeSpan.FromSeconds(30),
+        ["crash"] = TimeSpan.FromSeconds(40),
     };
 
     private readonly ILogger<SystemProbe> _logger;
@@ -142,7 +156,8 @@ public sealed class SystemProbe
     /// <summary>
     /// Corre todas las sondas en paralelo y devuelve lo que se pudo medir.
     /// </summary>
-    public async Task<ProbeResult> ProbeAsync(IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<ProbeResult> ProbeAsync(
+        IProgress<ProbeProgress>? progress = null, CancellationToken ct = default)
     {
         var snapshot = new SystemSnapshot();
         var failures = new List<CheckFailure>();
@@ -152,36 +167,44 @@ public sealed class SystemProbe
         // paralelo sin compartir estado mutable y el merge queda en un solo lugar.
         var probes = new (string Id, string Label, Func<Func<SystemSnapshot, SystemSnapshot>> Run)[]
         {
-            ("os", "Sistema operativo y equipo", ProbeOperatingSystem),
+            ("os", "Identificando el equipo", ProbeOperatingSystem),
             ("cpu", "Procesador", ProbeCpu),
             ("memory", "Memoria instalada", ProbeMemory),
-            ("memory.pressure", "Presión de memoria", ProbeMemoryPressure),
-            ("disk.logical", "Espacio en disco", ProbeLogicalDisk),
+            ("memory.pressure", "Uso de memoria", ProbeMemoryPressure),
+            ("disk.logical", "Espacio libre en disco", ProbeLogicalDisk),
             ("disk.physical", "Tipo y salud del disco", ProbePhysicalDisk),
-            ("disk.smart", "Estado SMART", ProbeSmart),
-            ("disk.latency", "Latencia del disco", ProbeDiskLatency),
-            ("startup", "Programas que arrancan con Windows", ProbeStartupEntries),
-            ("boot", "Tiempo del último arranque", ProbeBootTime),
-            ("antivirus", "Antivirus activos", ProbeAntivirus),
-            ("bitlocker", "Estado de BitLocker", ProbeBitLocker),
+            ("disk.smart", "Estado SMART del disco", ProbeSmart),
+            ("disk.latency", "Velocidad de respuesta del disco", ProbeDiskLatency),
+            ("startup", "Programas de arranque", ProbeStartupEntries),
+            ("boot", "Tiempo de encendido", ProbeBootTime),
+            ("antivirus", "Antivirus instalados", ProbeAntivirus),
+            ("bitlocker", "Cifrado BitLocker", ProbeBitLocker),
             ("printers", "Impresoras", ProbePrinters),
             ("bluetooth", "Bluetooth", ProbeBluetooth),
-            ("crash", "Pantallazos azules y estabilidad", ProbeCrashData),
+            ("crash", "Pantallazos azules", ProbeCrashData),
         };
 
         using var gate = new SemaphoreSlim(6);
+
+        int completed = 0;
+        int total = probes.Length;
 
         IEnumerable<Task<Func<SystemSnapshot, SystemSnapshot>?>> tasks = probes.Select(async probe =>
         {
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                progress?.Report(probe.Label);
+                progress?.Report(new ProbeProgress(completed, total, probe.Label));
+
                 return await RunProbeAsync(probe.Id, probe.Run, failures, sync, ct).ConfigureAwait(false);
             }
             finally
             {
                 gate.Release();
+
+                // El contador avanza al terminar, no al empezar: con sondas en paralelo, contar al
+                // arrancar haría que la barra llegue al 100 % con trabajo todavía en curso.
+                progress?.Report(new ProbeProgress(Interlocked.Increment(ref completed), total, probe.Label));
             }
         });
 
@@ -490,10 +513,13 @@ public sealed class SystemProbe
             // El contador está en unidades de 100 ns dentro de la clase formateada: llega ya en ms
             // en la mayoría de los equipos, pero puede venir en segundos. Se normaliza: un valor
             // menor a 1 casi seguro son segundos.
-            if (Number(d, "AvgDisksecPerTransfer") is double raw)
+            if (Number(d, "AvgDisksecPerTransfer") is double raw && raw > 0)
             {
                 milliseconds = raw < 1 ? raw * 1000 : raw;
             }
+
+            // Un cero exacto significa que el contador todavía no acumuló muestras, no que el disco
+            // responda en cero. Se deja como no medido: un dato inventado es peor que uno ausente.
 
             break;
         }

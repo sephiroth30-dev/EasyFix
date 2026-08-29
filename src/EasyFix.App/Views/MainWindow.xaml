@@ -18,6 +18,7 @@
         <vm:ScreenToVisibilityConverter x:Key="ScreenVis" />
         <vm:EmptyToCollapsedConverter x:Key="EmptyVis" />
         <vm:InverseBooleanConverter x:Key="Invert" />
+        <vm:InverseBooleanToVisibilityConverter x:Key="InvertVis" />
         <BooleanToVisibilityConverter x:Key="BoolVis" />
 
         <!-- Una fila del reporte: franja de color + título + detalle + números medidos. -->
@@ -217,17 +218,38 @@
             <!-- ===== 2. Analizando ===== -->
             <StackPanel Grid.Row="1" Margin="20,4,20,20" VerticalAlignment="Top"
                         Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Scanning}">
-                <TextBlock Text="Analizando el equipo…" Style="{StaticResource TitleText}"
-                           FontSize="15" Margin="0,4,0,4" />
-                <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource MutedText}"
-                           FontSize="12.5" Margin="0,0,0,16" />
+                <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource TitleText}"
+                           FontSize="15" Margin="0,4,0,14" />
 
-                <ProgressBar IsIndeterminate="True" Height="3" Background="{StaticResource BorderBrush}"
-                             Foreground="{StaticResource AccentBrush}" BorderThickness="0" />
+                <!-- Progreso: paso, porcentaje, barra y detalle. -->
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="{Binding ProgressStep}"
+                               Style="{StaticResource MutedText}" FontSize="11"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding ProgressStep, Converter={StaticResource EmptyVis}}" />
+
+                    <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                               Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                               Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                </Grid>
+
+                <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                             Minimum="0" Maximum="100"
+                             Value="{Binding ProgressPercent, Mode=OneWay}"
+                             IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+
+                <TextBlock Text="{Binding ProgressDetail}" Style="{StaticResource MutedText}"
+                           FontSize="11.5" Margin="0,8,0,0"
+                           Visibility="{Binding ProgressDetail, Converter={StaticResource EmptyVis}}" />
 
                 <Border Style="{StaticResource StatusPanel}" Margin="0,20,0,0">
                     <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
-                               Text="Todas las comprobaciones son de solo lectura. Cada una tiene su propio límite de tiempo: si alguna se cuelga, se marca «no se pudo determinar» y el reporte sale igual." />
+                               Text="Nada de esto modifica el equipo. Si alguna comprobación tarda demasiado, se salta y el informe sale igual." />
                 </Border>
 
                 <Button Content="Cancelar" Command="{Binding CancelCommand}"
@@ -346,10 +368,25 @@
                                    FontSize="11.5" Margin="0,14,0,0"
                                    Visibility="{Binding InstallProgressLabel, Converter={StaticResource EmptyVis}}" />
 
-                        <ProgressBar IsIndeterminate="True" Height="3" Margin="0,8,0,0"
-                                     Background="{StaticResource BorderBrush}"
-                                     Foreground="{StaticResource AccentBrush}" BorderThickness="0"
-                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+                        <StackPanel Margin="0,8,0,0"
+                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding ProgressStep}"
+                                           Style="{StaticResource MutedText}" FontSize="11"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                                           Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                                           Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                            </Grid>
+                            <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                                         Minimum="0" Maximum="100"
+                                         Value="{Binding ProgressPercent, Mode=OneWay}"
+                                         IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+                        </StackPanel>
 
                         <Border Style="{StaticResource StatusPanel}"
                                 Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
@@ -379,12 +416,37 @@
                 <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource MutedText}"
                            FontSize="12.5" Margin="0,0,0,16" />
 
-                <ProgressBar IsIndeterminate="True" Height="3" Background="{StaticResource BorderBrush}"
-                             Foreground="{StaticResource AccentBrush}" BorderThickness="0" />
+<!-- Progreso: título, porcentaje, barra y detalle. -->
+                <StackPanel Margin="0,0,0,4">
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="{Binding ProgressStep}"
+                                   Style="{StaticResource MutedText}" FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Visibility="{Binding ProgressStep, Converter={StaticResource EmptyVis}}" />
+
+                        <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                                   Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                                   Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                    </Grid>
+
+                    <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                                 Minimum="0" Maximum="100"
+                                 Value="{Binding ProgressPercent, Mode=OneWay}"
+                                 IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+
+                    <TextBlock Text="{Binding ProgressDetail}" Style="{StaticResource MutedText}"
+                               FontSize="11.5" Margin="0,8,0,0"
+                               Visibility="{Binding ProgressDetail, Converter={StaticResource EmptyVis}}" />
+                </StackPanel>
 
                 <Border Style="{StaticResource StatusPanel}">
                     <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
-                               Text="Se creó un punto de restauración antes del primer cambio. Cada acción queda registrada antes de aplicarse, así que se puede deshacer incluso si esto se interrumpe. Reparar los archivos del sistema puede tardar 40 minutos." />
+                               Text="Podés cerrar esta ventana sin miedo: cada cambio queda registrado antes de aplicarse y se puede deshacer después. Reparar los archivos del sistema puede tardar hasta 40 minutos." />
                 </Border>
 
                 <Button Content="Cancelar" Command="{Binding CancelCommand}"
@@ -452,10 +514,25 @@
                                    FontSize="11.5" Margin="0,14,0,0"
                                    Visibility="{Binding ProgressLabel, Converter={StaticResource EmptyVis}}" />
 
-                        <ProgressBar IsIndeterminate="True" Height="3" Margin="0,8,0,0"
-                                     Background="{StaticResource BorderBrush}"
-                                     Foreground="{StaticResource AccentBrush}" BorderThickness="0"
-                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+                        <StackPanel Margin="0,8,0,0"
+                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding ProgressStep}"
+                                           Style="{StaticResource MutedText}" FontSize="11"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                                           Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                                           Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                            </Grid>
+                            <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                                         Minimum="0" Maximum="100"
+                                         Value="{Binding ProgressPercent, Mode=OneWay}"
+                                         IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+                        </StackPanel>
 
                         <Border Style="{StaticResource StatusPanel}"
                                 Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">

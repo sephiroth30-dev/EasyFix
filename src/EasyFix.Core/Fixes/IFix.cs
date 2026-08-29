@@ -3,6 +3,34 @@ using EasyFix.Core.Rollback;
 
 namespace EasyFix.Core.Fixes;
 
+/// <summary>
+/// Progreso de una corrida, para poder mostrar una barra que avanza de verdad.
+/// </summary>
+/// <param name="Step">Paso actual, empezando en 1.</param>
+/// <param name="Total">Cuántos pasos tiene la corrida.</param>
+/// <param name="Title">Qué se está haciendo, en lenguaje de usuario.</param>
+/// <param name="Detail">Sublínea con el avance dentro del paso. Puede ser null.</param>
+/// <param name="Fraction">Avance dentro del paso, de 0 a 1, cuando se puede saber.</param>
+public sealed record FixProgress(
+    int Step,
+    int Total,
+    string Title,
+    string? Detail = null,
+    double? Fraction = null)
+{
+    /// <summary>
+    /// Porcentaje global de 0 a 100.
+    /// </summary>
+    /// <remarks>
+    /// Los pasos ya terminados cuentan completos, y el actual suma su fracción si se conoce. Sin
+    /// fracción se asume la mitad del paso: una barra que salta de golpe entre pasos parece trabada,
+    /// y una que se queda quieta parece colgada.
+    /// </remarks>
+    public double Percent => Total <= 0
+        ? 0
+        : Math.Clamp(100.0 * (Step - 1 + (Fraction ?? 0.5)) / Total, 0, 100);
+}
+
 /// <summary>A qué botón pertenece un fix.</summary>
 /// <remarks>
 /// «Mejorar rendimiento» y «Reparar errores» son cosas distintas y el técnico las elige por separado:

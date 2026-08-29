@@ -17,6 +17,66 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.7.0] — 2026-08-29
+
+Barra de progreso real y mensajes en castellano de persona. El defecto que había detrás del síntoma
+«la barra se oculta» no era la barra: era que la ventana se congelaba.
+
+### Corregido
+
+- **La ventana se congelaba durante «Mejorar rendimiento».** `TempCleanupFix` y `StartupDisableFix`
+  hacían todo su trabajo de forma **síncrona** y devolvían `Task.FromResult`. Como nunca esperaban
+  nada, el cuerpo entero corría en el hilo de la interfaz: Windows dejaba de recibir mensajes de esa
+  ventana, la atenuaba y la marcaba como «no responde». Eso es lo que se veía como una barra que se
+  esconde. Los dos pasan a `Task.Run`.
+
+  El peor de los dos era el de arranque: verificar la firma de cada ejecutable con `X509Chain.Build`
+  accede al almacén de certificados una vez por binario y es la operación más lenta de toda la
+  herramienta.
+
+- **Las sondas lentas daban timeout en equipos lentos.** En el Pentium G2020 del log del 2026-08-29,
+  `disk.physical` y `crash` no alcanzaban a terminar en 5 s y el reporte salía sin tipo de disco y
+  sin análisis de pantallazos. Suben a 30 s y 40 s. El resto de las sondas mantiene su tope, que se
+  cumple de sobra.
+
+- **`disco.latencia = 0 ms` se mostraba como una medición.** Un cero en ese contador es un contador
+  sin inicializar, no un disco infinitamente rápido. Ahora se informa «no medido», que es la verdad.
+
+### Agregado
+
+- **Barra de progreso determinada en las cuatro operaciones largas** — diagnóstico, mejorar
+  rendimiento, reparar errores e instalar programas. Muestra paso, porcentaje y la línea de detalle
+  de lo que está pasando ahora mismo.
+
+  `FixProgress` y `ProbeProgress` calculan el porcentaje. Dos decisiones que hacen que se sienta
+  honesta: un paso sin fracción conocida se dibuja a la mitad —así arranca moviéndose en vez de
+  quedarse en cero— y el porcentaje **nunca retrocede**, ni siquiera cuando un fix queda bloqueado o
+  se salta. Un paso que no se ejecuta igual avanza el contador, porque una barra quieta se lee como
+  una aplicación colgada.
+
+  Las sondas corren en paralelo, así que el avance se cuenta al **terminar** cada una con
+  `Interlocked.Increment`, no al empezarlas.
+
+- **Tests del cálculo del porcentaje** (`ProgressTests.cs`): monotonía a lo largo de una corrida
+  completa, el rango acotado a 0–100 con un contador fuera de rango, y total en cero sin dividir por
+  cero.
+
+### Cambiado
+
+- **Los mensajes de la pantalla se reescribieron para el cliente, no para el técnico.** Ejemplo:
+  «Revisando la integridad de los archivos del sistema (puede tardar varios minutos)…» pasa a
+  «Revisando si Windows tiene archivos dañados. Esto tarda varios minutos.»
+
+  **El log no cambió**: sigue registrando el comando exacto, el código de salida y la salida cruda.
+  La pantalla es para entender qué está pasando; el log es para diagnosticar por qué falló.
+
+### Todavía sin verificar en Windows
+
+Nada de esta versión se probó en un equipo real. El congelamiento se diagnosticó leyendo el código,
+no reproduciéndolo.
+
+---
+
 ## [0.6.0] — 2026-08-27
 
 Se conecta «Mejorar rendimiento». Los tres componentes que estaban escritos y probados pero sin usar

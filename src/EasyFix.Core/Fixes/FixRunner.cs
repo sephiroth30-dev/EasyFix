@@ -129,14 +129,23 @@ public sealed class FixRunner
         RunJournal journal,
         bool bitLockerKeyConfirmed,
         bool allowWithoutRestorePoint = false,
-        IProgress<string>? log = null,
+        IProgress<FixProgress>? progressReport = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(fixes);
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(journal);
 
-        var progress = log ?? new Progress<string>();
+        // Los pasos incluyen la preparación (punto de restauración) más un paso por fix.
+        int totalSteps = fixes.Count + 1;
+        int currentStep = 1;
+
+        void Report(string title, string? detail = null, double? fraction = null) =>
+            progressReport?.Report(new FixProgress(currentStep, totalSteps, title, detail, fraction));
+
+        // Adaptador: los fixes reportan texto suelto y eso se convierte en la sublínea del paso.
+        IProgress<string> DetailSink(string title) =>
+            new Progress<string>(detail => Report(title, detail));
 
         // ---- Compuerta 1: disco fallando ---------------------------------------------------
         if (snapshot.PrimaryDiskHealth == DiskHealth.Failing)
@@ -152,7 +161,7 @@ public sealed class FixRunner
         }
 
         // ---- Compuerta 2: punto de restauración --------------------------------------------
-        progress.Report("Creando punto de restauración…");
+        Report("Preparando", "Creando el punto de restauración…");
 
         RestorePointResult restorePoint;
         try
@@ -236,13 +245,15 @@ public sealed class FixRunner
                        "este registro, pero no hay punto de restauración del sistema como respaldo.",
             });
 
-            progress.Report(
-                "Sin punto de restauración. Cada cambio queda registrado igual, así que «Deshacer " +
-                "todo» sigue funcionando — pero no hay respaldo del sistema completo.");
+            Report(
+                "Preparando",
+                "Sin punto de restauración. Cada cambio queda registrado igual, así que se puede " +
+                "deshacer — pero no hay respaldo del sistema completo.",
+                1);
         }
         else
         {
-            progress.Report($"Punto de restauración creado (secuencia {sequence}).");
+            Report("Preparando", $"Punto de restauración creado (número {sequence}).", 1);
         }
 
         // ---- Compuerta 3: BitLocker ---------------------------------------------------------
@@ -253,13 +264,12 @@ public sealed class FixRunner
             if (!bitLockerKeyConfirmed)
             {
                 bootFixesAllowed = false;
-                progress.Report(
-                    "BitLocker activo sin confirmar la clave: se saltean las reparaciones que tocan " +
-                    "arranque o disco.");
+                Report("Preparando",
+                    "BitLocker activo sin confirmar la clave: se saltean las reparaciones de disco.");
             }
             else
             {
-                progress.Report("Suspendiendo BitLocker hasta el próximo reinicio…");
+                Report("Preparando", "Suspendiendo BitLocker hasta el próximo reinicio…");
 
                 bool suspended = await _bitLocker.SuspendUntilNextRebootAsync(ct).ConfigureAwait(false);
                 if (!suspended)
@@ -267,9 +277,8 @@ public sealed class FixRunner
                     // No se pudo suspender: se bloquean esos fixes en vez de arriesgarse a que el
                     // cliente quede fuera de su equipo.
                     bootFixesAllowed = false;
-                    progress.Report(
-                        "No se pudo suspender BitLocker: se saltean las reparaciones que tocan " +
-                        "arranque o disco.");
+                    Report("Preparando",
+                        "No se pudo suspender BitLocker: se saltean las reparaciones de disco.");
                 }
                 else
                 {
@@ -296,6 +305,8 @@ public sealed class FixRunner
             FixApplicability? gate = EvaluateGates(fix, snapshot, bootFixesAllowed);
             if (gate is not null)
             {
+                currentStep++;
+                Report(fix.DisplayName, "No corresponde en este equipo.", 1);
                 _logger.LogInformation(
                     "{FixId} bloqueado: {Reason}.", fix.Id, gate.Reason);
                 results.Add(new FixReport(fix.Id, fix.DisplayName, null, gate));
@@ -316,6 +327,7 @@ public sealed class FixRunner
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{FixId}: falló la comprobación previa.", fix.Id);
+                currentStep++;
                 results.Add(new FixReport(fix.Id, fix.DisplayName, null,
                     FixApplicability.No(FixBlockReason.Undetermined,
                         $"No se pudo comprobar si corresponde: {ex.Message}")));
@@ -324,15 +336,20 @@ public sealed class FixRunner
 
             if (!applicability.CanApply)
             {
+                currentStep++;
+                Report(fix.DisplayName, "No hacía falta.", 1);
                 results.Add(new FixReport(fix.Id, fix.DisplayName, null, applicability));
                 continue;
             }
 
-            progress.Report(fix.DisplayName);
+            currentStep++;
+            Report(fix.DisplayName);
 
             try
             {
-                FixOutcome outcome = await fix.ApplyAsync(context, progress, ct).ConfigureAwait(false);
+                FixOutcome outcome = await fix
+                    .ApplyAsync(context, DetailSink(fix.DisplayName), ct)
+                    .ConfigureAwait(false);
                 results.Add(new FixReport(fix.Id, fix.DisplayName, outcome, null));
 
                 if (outcome.Status == FixStatus.AppliedNeedsReboot)
@@ -355,6 +372,8 @@ public sealed class FixRunner
                     FixOutcome.Failed($"{ex.GetType().Name}: {ex.Message}"), null));
             }
         }
+
+        Report("Listo", null, 1);
 
         bool rebootRequired = pending.Count > 0;
         journal.SetState(

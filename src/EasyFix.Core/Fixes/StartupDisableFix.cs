@@ -96,14 +96,30 @@ public sealed class StartupDisableFix : IFix
         return Task.FromResult(FixApplicability.Yes());
     }
 
-    public Task<FixOutcome> ApplyAsync(FixContext context, IProgress<string> log, CancellationToken ct)
+    /// <summary>
+    /// Lee las entradas de inicio, las clasifica y desactiva las autorizadas.
+    /// </summary>
+    /// <remarks>
+    /// <b>Todo va a un hilo del pool.</b> Verificar la firma de cada ejecutable con
+    /// <c>X509Chain.Build</c> es lo más lento de la herramienta —accede al almacén de certificados
+    /// por cada binario— y hacerlo en el hilo de la interfaz congelaba la ventana entera.
+    /// </remarks>
+    public Task<FixOutcome> ApplyAsync(
+        FixContext context, IProgress<string> log, CancellationToken ct) =>
+        Task.Run(() => Apply(context, log, ct), ct);
+
+    private FixOutcome Apply(FixContext context, IProgress<string> log, CancellationToken ct)
     {
         var systemContext = new SystemContext(
             context.Snapshot.IsDomainJoined,
             context.Snapshot.IsSsd,
             context.Snapshot.TotalRamGb ?? 0);
 
+        log.Report("Revisando qué programas arrancan con Windows y quién los firma.");
+
         IReadOnlyList<StartupEntry> entries = _reader.Read();
+
+        log.Report($"{entries.Count} programa(s) de arranque. Decidiendo cuáles se pueden quitar.");
 
         var disabled = new List<string>();
         var needApproval = new List<string>();
@@ -127,7 +143,7 @@ public sealed class StartupDisableFix : IFix
                     if (TryDisable(entry, context, out string? error))
                     {
                         disabled.Add(entry.Candidate.DisplayName);
-                        log.Report($"Quitado del inicio: {entry.Candidate.DisplayName}");
+                        log.Report($"Quitado del arranque: {entry.Candidate.DisplayName}");
                     }
                     else
                     {
@@ -159,7 +175,7 @@ public sealed class StartupDisableFix : IFix
                   string.Join(", ", needApproval.Take(5)) + "."
                 : "No hay programas de inicio en la lista de seguros.";
 
-            return Task.FromResult(FixOutcome.NothingToDo(why));
+            return FixOutcome.NothingToDo(why);
         }
 
         var summary = new System.Text.StringBuilder();
@@ -182,7 +198,7 @@ public sealed class StartupDisableFix : IFix
             summary.Append($" {errors.Count} dieron error.");
         }
 
-        return Task.FromResult(FixOutcome.Applied(summary.ToString()));
+        return FixOutcome.Applied(summary.ToString());
     }
 
     /// <summary>

@@ -60,7 +60,17 @@ public sealed class TempCleanupFix : IFix
         Task.FromResult(FixApplicability.Yes(
             "Siempre corresponde: si no hay nada viejo que borrar, no se borra nada."));
 
-    public Task<FixOutcome> ApplyAsync(FixContext context, IProgress<string> log, CancellationToken ct)
+    /// <summary>
+    /// Limpia las carpetas de temporales.
+    /// </summary>
+    /// <remarks>
+    /// <b>Todo el recorrido va a un hilo del pool.</b> La primera versión hacía el trabajo de forma
+    /// síncrona y devolvía <c>Task.FromResult</c>: como nunca esperaba nada, el cuerpo entero corría
+    /// en el hilo de la interfaz, Windows congelaba la ventana y la atenuaba. Recorrer <c>%TEMP%</c>
+    /// puede llevar minutos en un equipo con disco mecánico.
+    /// </remarks>
+    public async Task<FixOutcome> ApplyAsync(
+        FixContext context, IProgress<string> log, CancellationToken ct)
     {
         var targets = new List<(string Label, string Path)>
         {
@@ -76,7 +86,7 @@ public sealed class TempCleanupFix : IFix
         foreach ((string label, string path) in targets)
         {
             ct.ThrowIfCancellationRequested();
-            log.Report($"Limpiando {label}…");
+            log.Report($"Borrando {label.ToLowerInvariant()}. Puede tardar en discos lentos.");
 
             // Antes de borrar, porque después no hay forma de saber qué había.
             context.Journal.Append(new JournalAction
@@ -88,7 +98,9 @@ public sealed class TempCleanupFix : IFix
                        $"{_thresholds.TempFileMinAgeMinutes} minutos. No recuperable.",
             });
 
-            CleanResult result = _cleaner.Clean(path, _thresholds.TempFileMinAge, ct);
+            CleanResult result = await Task
+                .Run(() => _cleaner.Clean(path, _thresholds.TempFileMinAge, ct), ct)
+                .ConfigureAwait(false);
 
             freed += result.FreedBytes;
             files += result.FilesDeleted;
@@ -104,8 +116,7 @@ public sealed class TempCleanupFix : IFix
 
         if (files == 0)
         {
-            return Task.FromResult(FixOutcome.NothingToDo(
-                "No había archivos temporales viejos que borrar."));
+            return FixOutcome.NothingToDo("No había archivos temporales viejos que borrar.");
         }
 
         var summary = new System.Text.StringBuilder();
@@ -128,7 +139,7 @@ public sealed class TempCleanupFix : IFix
             summary.Append($" {errors.Count} ruta(s) dieron error.");
         }
 
-        return Task.FromResult(FixOutcome.Applied(summary.ToString(), freed));
+        return FixOutcome.Applied(summary.ToString(), freed);
     }
 }
 
@@ -217,7 +228,7 @@ public sealed class PowerPlanFix : IFix
             return FixOutcome.Failed("No se pudo leer el plan de energía activo.");
         }
 
-        log.Report("Cambiando el plan de energía…");
+        log.Report("Cambiando el plan de energía a Alto rendimiento.");
 
         context.Journal.Append(new JournalAction
         {
@@ -330,7 +341,7 @@ public sealed class DiskOptimizationFix : IFix
 
         if (context.Snapshot.IsSsd)
         {
-            log.Report("Activando TRIM…");
+            log.Report("Activando TRIM para que el SSD mantenga su velocidad.");
 
             context.Journal.Append(new JournalAction
             {
@@ -357,7 +368,7 @@ public sealed class DiskOptimizationFix : IFix
             return FixOutcome.Applied("TRIM activado: el SSD puede liberar bloques borrados.");
         }
 
-        log.Report("Programando la desfragmentación del disco mecánico…");
+        log.Report("Desfragmentando el disco mecánico en segundo plano, sin molestar al usuario.");
 
         context.Journal.Append(new JournalAction
         {

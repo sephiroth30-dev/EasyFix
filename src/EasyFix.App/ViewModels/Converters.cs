@@ -34,6 +34,23 @@ public sealed class EmptyToCollapsedConverter : IValueConverter
 }
 
 /// <summary>
+/// Oculta el elemento cuando el booleano es <c>true</c>. Es el inverso de
+/// <see cref="System.Windows.Controls.BooleanToVisibilityConverter"/>.
+/// </summary>
+/// <remarks>
+/// Se usa para el porcentaje: mientras la barra está en modo indeterminado no hay número que
+/// mostrar, y un «0 %» fijo haría creer que la operación está trabada.
+/// </remarks>
+public sealed class InverseBooleanToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is bool flag && flag ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
 /// Niega un booleano. Se usa para <c>IsEnabled</c> a partir de <c>FixesBlocked</c>: cuando los
 /// arreglos están bloqueados, el botón se apaga.
 /// </summary>

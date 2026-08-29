@@ -254,6 +254,44 @@
         </Setter>
     </Style>
 
+    <!--
+        Barra de progreso. La de Windows sobre fondo oscuro se ve como un rectángulo gris con un
+        relleno verde chillón, y en modo indeterminado su animación se congela apenas el hilo de la
+        interfaz se ocupa — que es exactamente cuando el usuario más necesita ver que algo pasa.
+        Esta es plana, fina, con el acento de la app.
+    -->
+    <Style x:Key="ProgressBarStyle" TargetType="ProgressBar">
+        <Setter Property="Height" Value="6" />
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Background" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid>
+                        <Border Background="{TemplateBinding Background}" CornerRadius="3" />
+
+                        <!-- PART_Track y PART_Indicator son los nombres que espera el control:
+                             sin ellos el ancho del relleno no se calcula. -->
+                        <Border x:Name="PART_Track" Background="Transparent" />
+                        <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
+                                Background="{TemplateBinding Foreground}" CornerRadius="3" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Etiqueta del porcentaje, en monoespaciada para que no baile al cambiar de número. -->
+    <Style x:Key="ProgressPercentText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="MinWidth" Value="42" />
+        <Setter Property="TextAlignment" Value="Right" />
+    </Style>
+
     <!-- Botón de la barra de título: minimizar y cerrar. -->
     <Style x:Key="ChromeButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />

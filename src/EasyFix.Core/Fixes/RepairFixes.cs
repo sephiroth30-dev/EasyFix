@@ -128,7 +128,7 @@ public sealed class SystemFileRepairFix : ProcessFix
     public override async Task<FixOutcome> ApplyAsync(
         FixContext context, IProgress<string> log, CancellationToken ct)
     {
-        log.Report("Revisando la integridad de los archivos del sistema (puede tardar varios minutos)…");
+        log.Report("Revisando si Windows tiene archivos dañados. Esto tarda varios minutos.");
 
         // /English fuerza salida en inglés sin importar el idioma del sistema. Sin esto la detección
         // de "no hay corrupción" compara texto en inglés contra un Windows en español, nunca acierta,
@@ -152,12 +152,12 @@ public sealed class SystemFileRepairFix : ProcessFix
 
         if (noCorruption && !repairable)
         {
-            log.Report("Los archivos del sistema están íntegros.");
+            log.Report("Los archivos de Windows están bien.");
             return FixOutcome.NothingToDo("Los archivos del sistema ya estaban íntegros: no hizo falta reparar.");
         }
 
         // Hay daño (o no se pudo determinar): se repara. En la duda conviene repararlo.
-        log.Report("Se detectó corrupción. Restaurando desde la imagen de referencia de Windows…");
+        log.Report("Se encontraron archivos dañados. Reponiéndolos desde Windows. Puede tardar media hora.");
 
         Journal(context, "Imagen de componentes de Windows",
             "DISM /RestoreHealth. No es reversible, pero solo repone archivos originales de Windows.");
@@ -183,7 +183,7 @@ public sealed class SystemFileRepairFix : ProcessFix
                 "que se puede reparar pieza por pieza.");
         }
 
-        log.Report("Verificando los archivos protegidos del sistema…");
+        log.Report("Verificando los archivos protegidos de Windows.");
 
         Journal(context, "Archivos protegidos del sistema", "sfc /scannow.");
 
@@ -258,7 +258,7 @@ public sealed class DiskCheckFix : ProcessFix
     {
         string drive = Path.GetPathRoot(Environment.SystemDirectory)?.TrimEnd('\\') ?? "C:";
 
-        log.Report($"Revisando el sistema de archivos de {drive} (sin reiniciar)…");
+        log.Report($"Revisando el disco {drive} en busca de errores. No hace falta reiniciar.");
 
         ProcessResult scan = await RunSystem32Async("chkdsk.exe", new[] { drive, "/scan" }, ct)
             .ConfigureAwait(false);
@@ -276,7 +276,7 @@ public sealed class DiskCheckFix : ProcessFix
             return FixOutcome.NothingToDo("El sistema de archivos no tiene errores.");
         }
 
-        log.Report("Se encontraron errores. Programando la reparación para el próximo reinicio…");
+        log.Report("El disco tiene errores. La reparación queda programada para el próximo reinicio.");
 
         Journal(context, drive,
             $"chkdsk {drive} /f programado en el próximo reinicio. La reparación del sistema de " +
@@ -344,7 +344,7 @@ public sealed class ScheduleMemoryTestFix : ProcessFix
     public override async Task<FixOutcome> ApplyAsync(
         FixContext context, IProgress<string> log, CancellationToken ct)
     {
-        log.Report("Programando el diagnóstico de memoria para el próximo reinicio…");
+        log.Report("La prueba de memoria queda programada para el próximo reinicio.");
 
         Journal(context, "Configuración de arranque",
             "Diagnóstico de memoria de Windows programado. Se ejecuta una sola vez.");
@@ -409,18 +409,18 @@ public sealed class NetworkStackResetFix : ProcessFix
         Journal(context, "Pila de red (winsock e IP)",
             "netsh winsock reset + netsh int ip reset. La configuración manual de red se pierde.");
 
-        log.Report("Restableciendo winsock…");
+        log.Report("Restableciendo la configuración de red.");
         ProcessResult winsock = await RunSystem32Async(
             "netsh.exe", new[] { "winsock", "reset" }, ct).ConfigureAwait(false);
 
-        log.Report("Restableciendo la configuración IP…");
+        log.Report("Restableciendo las direcciones IP.");
 
         // 1 es habitual acá: netsh no puede reponer algunas claves que ya estaban en su valor por
         // defecto, y devuelve 1 aunque el restablecimiento haya funcionado.
         ProcessResult ip = await RunSystem32Async(
             "netsh.exe", new[] { "int", "ip", "reset" }, ct, new[] { 1 }).ConfigureAwait(false);
 
-        log.Report("Limpiando la caché de DNS…");
+        log.Report("Limpiando la memoria de nombres de red.");
         await RunSystem32Async("ipconfig.exe", new[] { "/flushdns" }, ct).ConfigureAwait(false);
 
         // "netsh int ip reset" devuelve 1 con frecuencia aunque haya funcionado: no puede reponer
@@ -511,7 +511,7 @@ public sealed class RemoveCorrelatedUpdateFix : ProcessFix
                 $"No se pudo extraer el número de KB de '{target.Id}'.");
         }
 
-        log.Report($"Desinstalando {target.Id}…");
+        log.Report($"Desinstalando la actualización {target.Id}.");
 
         Journal(context, target.Id,
             $"Desinstalada la actualización {target.Id}, instalada el " +
@@ -581,7 +581,7 @@ public sealed class WindowsUpdateResetFix : ProcessFix
 
         foreach (string service in Services)
         {
-            log.Report($"Deteniendo {service}…");
+            log.Report($"Deteniendo el servicio {service}.");
 
             // 2 = el servicio ya estaba detenido. Es el caso normal.
             ProcessResult stop = await RunSystem32Async(
@@ -619,7 +619,7 @@ public sealed class WindowsUpdateResetFix : ProcessFix
 
                     Directory.Move(path, backup);
                     renamed.Add(folder);
-                    log.Report($"{folder} renombrada.");
+                    log.Report($"Estado de Windows Update reconstruido ({folder}).");
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -631,7 +631,7 @@ public sealed class WindowsUpdateResetFix : ProcessFix
 
         foreach (string service in Services)
         {
-            log.Report($"Arrancando {service}…");
+            log.Report($"Volviendo a arrancar {service}.");
 
             ProcessResult start = await RunSystem32Async(
                     "net.exe", new[] { "start", service }, ct, ServiceAlreadyInState)
