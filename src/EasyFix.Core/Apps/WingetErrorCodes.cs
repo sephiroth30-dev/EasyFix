@@ -10,9 +10,25 @@ namespace EasyFix.Core.Apps;
 /// —los había instalado la propia app dos horas antes—. Un fallo falso es peor que un error: hace
 /// desconfiar de lo que sí funciona.</para>
 ///
-/// <para>Los valores de acá están verificados contra la documentación de winget-cli. Y como respaldo,
-/// <see cref="WingetErrorTable"/> puede cargar la tabla completa del winget instalado en el equipo con
-/// <c>winget error --output</c>, así el mapeo lo provee winget y no la memoria de nadie.</para>
+/// <para><b>Qué está verificado y qué no.</b> Cuatro de estos valores se confirmaron contra un equipo
+/// real, porque aparecieron en sus logs: <see cref="NoApplicationsFound"/>,
+/// <see cref="UpdateNotApplicable"/>, <see cref="SourceDataMissing"/> e
+/// <see cref="InstallerHashMismatch"/>. Los otros tres —<see cref="PackageAlreadyInstalled"/>,
+/// <see cref="NoApplicableInstaller"/> y <see cref="FailedToOpenAllSources"/>— <b>siguen
+/// transcritos de memoria y sin comprobar</b>. Están marcados uno por uno abajo. Decir que todos
+/// estaban verificados, como decía este comentario antes, era exactamente el tipo de afirmación no
+/// medida que este proyecto trata de no cometer.</para>
+///
+/// <para><b>Por qué eso ya no es peligroso.</b> Un código sin reconocer cae en
+/// <c>WingetOutcome.Failed</c> con su valor en crudo, así que el peor caso de una constante
+/// equivocada es un fallo honesto y diagnosticable. La única vía por la que un código podía volverse
+/// un <em>éxito</em> falso era «ya estaba instalado», y ahora eso exige confirmación independiente:
+/// ver <see cref="ConfirmsAlreadyInstalled"/>.</para>
+///
+/// <para>Como respaldo, <see cref="WingetErrorTable"/> carga la tabla completa del winget instalado en
+/// el equipo con <c>winget error --output</c>, así el mapeo lo provee winget y no la memoria de nadie.
+/// Ojo: ese comando no existe en winget 1.24 y anteriores —devuelve
+/// <c>INVALID_CL_ARGUMENTS</c>—, así que en equipos viejos las constantes son la única fuente.</para>
 /// </remarks>
 public static class WingetErrorCodes
 {
@@ -38,10 +54,23 @@ public static class WingetErrorCodes
     /// </remarks>
     public const int UpdateNotApplicable = unchecked((int)0x8A15002B);
 
-    /// <summary><c>APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED</c>.</summary>
+    /// <summary>
+    /// <c>APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED</c>. <b>SIN VERIFICAR.</b>
+    /// </summary>
+    /// <remarks>
+    /// Transcrito de memoria y nunca visto en un log. No se usa para declarar éxito por sí solo: ver
+    /// <see cref="ConfirmsAlreadyInstalled"/>. Para confirmarlo hace falta la salida de
+    /// <c>winget error --output</c> de un equipo con winget 1.6 o superior.
+    /// </remarks>
     public const int PackageAlreadyInstalled = unchecked((int)0x8A150056);
 
-    /// <summary><c>APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER</c>.</summary>
+    /// <summary>
+    /// <c>APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER</c>. <b>SIN VERIFICAR.</b>
+    /// </summary>
+    /// <remarks>
+    /// Si está mal, el efecto es que un «sin instalador compatible» se reporta como fallo genérico con
+    /// el código a la vista. Molesto, no peligroso.
+    /// </remarks>
     public const int NoApplicableInstaller = unchecked((int)0x8A150061);
 
     /// <summary>
@@ -53,7 +82,15 @@ public static class WingetErrorCodes
     /// </remarks>
     public const int SourceDataMissing = unchecked((int)0x8A15000F);
 
-    /// <summary><c>APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES</c>.</summary>
+    /// <summary>
+    /// <c>APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES</c>. <b>SIN VERIFICAR, y sospechoso.</b>
+    /// </summary>
+    /// <remarks>
+    /// <c>0x8A150019</c> podría ser <c>NOT_ALL_QUERIES_FOUND_SINGLE</c>, que es otra cosa. Si está
+    /// mal, el efecto es que EasyFix intenta reparar las fuentes cuando no hacía falta: el reset es
+    /// idempotente y el resultado real lo decide el reintento, así que no rompe nada. Confirmar con
+    /// <c>winget error --output</c>.
+    /// </remarks>
     public const int FailedToOpenAllSources = unchecked((int)0x8A150019);
 
     /// <summary>
@@ -78,9 +115,99 @@ public static class WingetErrorCodes
     public static bool IsSourceProblem(int code) =>
         code == SourceDataMissing || code == FailedToOpenAllSources;
 
-    /// <summary>Códigos que significan «ya está instalado», que no es un fallo.</summary>
-    public static bool MeansAlreadyInstalled(int code) =>
+    /// <summary>
+    /// Símbolos de winget que significan «ya estaba instalado».
+    /// </summary>
+    /// <remarks>
+    /// Los <b>nombres</b> son estables entre versiones de winget; los <b>números</b> no lo son para
+    /// nosotros, porque acá se transcriben a mano. Cuando la tabla del equipo está cargada, se decide
+    /// por el símbolo y las constantes dejan de importar.
+    /// </remarks>
+    private static readonly string[] AlreadyInstalledSymbols =
+    {
+        "PACKAGE_ALREADY_INSTALLED",
+        "UPDATE_NOT_APPLICABLE",
+        "NO_APPLICATIONS_FOUND_FOR_UPGRADE",
+    };
+
+    /// <summary>
+    /// Códigos que <em>probablemente</em> significan «ya está instalado», según nuestras constantes.
+    /// </summary>
+    /// <remarks>
+    /// <b>No alcanza para declarar éxito por sí solo.</b> Ver
+    /// <see cref="ConfirmsAlreadyInstalled(int, WingetErrorTable?, string)"/>.
+    /// </remarks>
+    public static bool LooksAlreadyInstalled(int code) =>
         code == PackageAlreadyInstalled || code == UpdateNotApplicable;
+
+    /// <summary>
+    /// <c>true</c> solo cuando hay evidencia real de que el paquete ya estaba instalado.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Por qué existe esta función y no basta con comparar el código.</b> «Ya estaba
+    /// instalado» se reporta como éxito: el paquete cuenta como disponible en el equipo. Entonces una
+    /// constante equivocada acá no produce un fallo falso —molesto pero visible— sino un <b>éxito
+    /// falso</b>: EasyFix le diría al técnico que un programa quedó instalado cuando winget devolvió
+    /// un error que ni reconocimos. De todos los bugs posibles en esta herramienta, ese es el peor,
+    /// porque no deja rastro que haga sospechar.</para>
+    ///
+    /// <para>Y el riesgo es concreto: dos de las constantes de esta clase ya estuvieron mal una vez,
+    /// y las de «ya instalado» no se pudieron verificar contra un Windows todavía —el equipo del
+    /// 2026-08-29 traía winget 1.24, cuyo <c>winget error --output</c> devuelve
+    /// <c>INVALID_CL_ARGUMENTS</c>, así que la tabla quedó vacía y las constantes fueron la única
+    /// fuente.</para>
+    ///
+    /// <para><b>La regla.</b> El código por sí solo no autoriza. Hace falta que lo confirme la tabla
+    /// del propio winget del equipo (por el nombre del símbolo, que sí es estable) o la salida de
+    /// winget. Sin confirmación, se reporta el fallo con el código en crudo: honesto y diagnosticable.
+    /// Es el mismo criterio que el resto del proyecto — un dato que no se pudo medir nunca se cuenta
+    /// como verde.</para>
+    /// </remarks>
+    /// <param name="code">Código de salida de winget.</param>
+    /// <param name="table">Tabla del equipo, si se pudo cargar.</param>
+    /// <param name="standardOutput">Lo que winget escribió; ahí avisa en texto.</param>
+    public static bool ConfirmsAlreadyInstalled(
+        int code, WingetErrorTable? table, string standardOutput)
+    {
+        // 1. La tabla del equipo manda: el símbolo lo provee winget, no nosotros.
+        if (table?.SymbolFor(code) is { } symbol)
+        {
+            return AlreadyInstalledSymbols.Any(known =>
+                symbol.Contains(known, StringComparison.Ordinal));
+        }
+
+        // 2. Sin tabla, la constante sirve solo si winget además lo dice por texto.
+        return LooksAlreadyInstalled(code) && SaysAlreadyInstalled(standardOutput);
+    }
+
+    /// <summary>
+    /// <c>true</c> si la salida de winget dice que ya estaba instalado.
+    /// </summary>
+    /// <remarks>
+    /// En español y en inglés: el equipo del cliente puede tener cualquiera de los dos, y comparar
+    /// solo contra el inglés es el mismo error que ya costó cuatro minutos por corrida en la detección
+    /// de corrupción de DISM.
+    /// </remarks>
+    public static bool SaysAlreadyInstalled(string? standardOutput)
+    {
+        if (string.IsNullOrWhiteSpace(standardOutput))
+        {
+            return false;
+        }
+
+        string[] phrases =
+        {
+            "already installed",
+            "ya está instalado",
+            "ya esta instalado",
+            "No newer package versions",
+            "No hay versiones más recientes",
+            "No applicable upgrade",
+            "no aplicable",
+        };
+
+        return phrases.Any(p => standardOutput.Contains(p, StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 /// <summary>

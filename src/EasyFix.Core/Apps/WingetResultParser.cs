@@ -1,4 +1,5 @@
 using EasyFix.Core.Abstractions;
+using EasyFix.Core.Network;
 
 namespace EasyFix.Core.Apps;
 
@@ -31,6 +32,16 @@ public enum WingetOutcome
     /// configurar una descarga directa.
     /// </summary>
     NotInCatalog,
+
+    /// <summary>
+    /// El equipo no tiene internet. Ningún instalador se llegó a lanzar.
+    /// </summary>
+    /// <remarks>
+    /// Existe separado de <see cref="Failed"/> porque no es un fallo del paquete ni de winget: es una
+    /// precondición que no se cumple. Mezclarlos fue lo que llevó a culpar tres veces al catálogo de
+    /// winget de un equipo que estaba sin red.
+    /// </remarks>
+    NoNetwork,
 
     /// <summary>Se cortó por timeout.</summary>
     TimedOut,
@@ -115,9 +126,13 @@ public static class WingetResultParser
                 $"winget terminó sin devolver un código de salida para {packageId}.", null);
         }
 
-        // "Ya está instalado" NO es un fallo. UPDATE_NOT_APPLICABLE sobre un install significa
-        // exactamente eso, y era el caso que se reportaba como "no encontrado".
-        if (WingetErrorCodes.MeansAlreadyInstalled(value))
+        // "Ya está instalado" NO es un fallo, y era el caso que se reportaba como "no encontrado".
+        //
+        // Pero es el ÚNICO camino por el que un código de error puede terminar contado como éxito, así
+        // que exige confirmación independiente: la tabla del winget del equipo, o que winget lo diga
+        // por texto. Una constante nuestra equivocada acá no produciría un fallo falso —visible— sino
+        // un éxito falso, que no deja rastro. Ver WingetErrorCodes.ConfirmsAlreadyInstalled.
+        if (WingetErrorCodes.ConfirmsAlreadyInstalled(value, table, process.StandardOutput))
         {
             return new WingetResult(packageId, WingetOutcome.AlreadyInstalled,
                 $"{packageId} ya estaba instalado en su última versión.", code);
@@ -133,11 +148,15 @@ public static class WingetResultParser
 
         if (WingetErrorCodes.IsSourceProblem(value))
         {
+            // Este mensaje solo se muestra con la conexión ya confirmada: WingetService comprueba
+            // internet antes de lanzar nada. Sin esa comprobación previa, el mismo código aparecía en
+            // un equipo sin red y este texto mandaba a buscar un problema de permisos inexistente.
             return new WingetResult(packageId, WingetOutcome.SourceUnavailable,
-                "winget no puede leer su catálogo de paquetes. Pasa al ejecutarse como " +
-                "administrador: el catálogo se instala por usuario y la sesión elevada no lo tiene. " +
-                "EasyFix intenta repararlo solo con «winget source reset --force»; si sigue " +
-                "fallando, abrí una consola SIN administrador y corré ese mismo comando.", code);
+                "El equipo tiene internet, pero winget no puede leer su catálogo de paquetes. " +
+                "Pasa al ejecutarse como administrador: el catálogo se instala por usuario y la " +
+                "sesión elevada no lo tiene. EasyFix intenta repararlo solo con " +
+                "«winget source reset --force»; si sigue fallando, abrí una consola SIN " +
+                "administrador y corré ese mismo comando.", code);
         }
 
         if (value == WingetErrorCodes.InstallerHashMismatch)
@@ -171,6 +190,17 @@ public static class WingetResultParser
         if (official is { Length: > 0 }) { detail.Append($" {official}."); }
         if (errorLine is not null) { detail.Append($" {errorLine}"); }
 
+        // El código coincide con una constante de «ya estaba instalado» pero nada lo confirmó. Se
+        // reporta como fallo —es lo seguro— y se dice por qué, así el técnico puede comprobarlo a mano
+        // en vez de quedarse con un código sin explicación.
+        if (WingetErrorCodes.LooksAlreadyInstalled(value))
+        {
+            detail.Append(
+                " Este código podría significar que el programa ya estaba instalado, pero no se pudo " +
+                "confirmar, así que se informa como fallo en vez de darlo por bueno. Comprobalo en " +
+                "«Aplicaciones instaladas».");
+        }
+
         return new WingetResult(packageId, WingetOutcome.Failed, detail.ToString(), code);
     }
 
@@ -187,6 +217,28 @@ public static class WingetResultParser
             null);
     }
 
+    /// <summary>
+    /// Resultado para cuando el equipo no tiene internet.
+    /// </summary>
+    /// <remarks>
+    /// Se devuelve <b>sin lanzar nada</b>. Todo lo que instala EasyFix se descarga en el momento —no
+    /// hay ningún instalador empaquetado dentro del <c>.exe</c>—, así que sin conexión no hay nada
+    /// que intentar. Ejecutar winget igual solo produce un error engañoso: en el equipo del
+    /// 2026-08-29 devolvió «catálogo no disponible» tres veces y mandó a buscar un problema de
+    /// permisos que no existía.
+    /// </remarks>
+    public static WingetResult Offline(string packageId, ConnectivityResult connectivity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(connectivity);
+
+        return new WingetResult(
+            packageId,
+            WingetOutcome.NoNetwork,
+            $"No se instaló porque el equipo no tiene internet. {connectivity.Detail}",
+            null);
+    }
+
     /// <summary>Resumen para el reporte: qué quedó instalado y qué no.</summary>
     public static string Summarize(IReadOnlyList<WingetResult> results)
     {
@@ -199,11 +251,22 @@ public static class WingetResultParser
 
         int installed = results.Count(r => r.Outcome == WingetOutcome.Installed);
         int already = results.Count(r => r.Outcome == WingetOutcome.AlreadyInstalled);
-        int failed = results.Count(r => !r.PackageAvailable);
+
+        // Sin internet no es «con error»: no se intentó nada. Decir «5 con error» sobre un equipo
+        // desconectado manda al técnico a revisar winget en vez de revisar el cable.
+        int offline = results.Count(r => r.Outcome == WingetOutcome.NoNetwork);
+        int failed = results.Count(r => !r.PackageAvailable && r.Outcome != WingetOutcome.NoNetwork);
+
+        if (offline == results.Count)
+        {
+            return "No se instaló nada: el equipo no tiene internet. " +
+                   "EasyFix descarga todo en el momento, así que sin conexión no hay nada que instalar.";
+        }
 
         var parts = new List<string>();
         if (installed > 0) { parts.Add($"{installed} instalado(s)"); }
         if (already > 0) { parts.Add($"{already} ya estaba(n) instalado(s)"); }
+        if (offline > 0) { parts.Add($"{offline} sin internet"); }
         if (failed > 0) { parts.Add($"{failed} con error"); }
 
         return string.Join(", ", parts) + '.';

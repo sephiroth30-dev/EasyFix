@@ -1,3 +1,5 @@
+using EasyFix.Core.Network;
+
 namespace EasyFix.Core.Diagnostics;
 
 /// <summary>Tipo de medio del disco. Los valores replican <c>MSFT_PhysicalDisk.MediaType</c>.</summary>
@@ -93,6 +95,17 @@ public sealed record SystemSnapshot
     /// <summary>Cantidad de antivirus activos. Dos o más = conflicto y lentitud severa.</summary>
     public int ActiveAntivirusCount { get; init; }
 
+    /// <summary>
+    /// Estado de la conexión a internet. <c>null</c> = no se comprobó.
+    /// </summary>
+    /// <remarks>
+    /// Condiciona el botón de instalar programas: todo se descarga en el momento, así que sin conexión
+    /// no hay nada que instalar. Está en el snapshot para que el reporte lo diga <b>antes</b> de que el
+    /// técnico apriete el botón — en el equipo del 2026-08-29 se enteró después de cuatro fallos, y con
+    /// el motivo equivocado.
+    /// </remarks>
+    public ConnectivityStatus? Network { get; init; }
+
     public bool IsSsd => PrimaryDiskMedia is DiskMedia.Ssd or DiskMedia.Scm;
 
     /// <summary>
@@ -135,6 +148,7 @@ public sealed record SystemSnapshot
             $"  impresoras            = {HasPrinters}",
             $"  bluetooth             = {HasBluetoothAdapter}",
             $"  antivirus_activos     = {ActiveAntivirusCount}",
+            $"  internet              = {Network?.ToString() ?? "no comprobado"}",
         });
     }
 }

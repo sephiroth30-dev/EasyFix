@@ -13,9 +13,15 @@
   -->
 
   <PropertyGroup>
-    <Version>0.7.0</Version>
-    <FileVersion>0.6.0.0</FileVersion>
-    <AssemblyVersion>0.6.0.0</AssemblyVersion>
+    <Version>0.8.0</Version>
+
+    <!--
+      Derivadas de Version, NUNCA escritas a mano. Estaban clavadas en 0.6.0.0 mientras Version ya
+      iba en 0.8.0: la barra de título decía una versión y Propiedades → Detalles del .exe decía
+      otra, que es la peor forma de no saber qué binario está corriendo en el equipo de un cliente.
+    -->
+    <FileVersion>$(Version).0</FileVersion>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
 
     <Product>EasyFix</Product>
     <Company>Andrés Hernández</Company>

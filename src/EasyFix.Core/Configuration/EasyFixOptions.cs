@@ -13,7 +13,37 @@ public sealed record EasyFixOptions
     public ClassifierOptions Classifier { get; init; } = new();
     public BloatwareOptions Bloatware { get; init; } = new();
     public ServiceOptions Services { get; init; } = new();
+    public NetworkOptions Network { get; init; } = new();
     public IReadOnlyList<WingetPackage> WingetPackages { get; init; } = Array.Empty<WingetPackage>();
+}
+
+/// <summary>
+/// Cómo se comprueba que el equipo tiene internet.
+/// </summary>
+/// <remarks>
+/// Es configurable porque el endpoint por defecto —el mismo que usa Windows para decidir si el ícono
+/// de red lleva el signo de exclamación— puede estar bloqueado en una red corporativa. Sin poder
+/// cambiarlo, EasyFix reportaría «sin internet» en un equipo que sí lo tiene.
+/// </remarks>
+public sealed record NetworkOptions
+{
+    /// <summary>
+    /// URL de la comprobación. <b>HTTP a propósito</b>: ver <c>HttpConnectivityCheck</c>. Sobre HTTPS
+    /// un portal cautivo se vuelve indistinguible de un firewall.
+    /// </summary>
+    public string ProbeUrl { get; init; } = "http://www.msftconnecttest.com/connecttest.txt";
+
+    /// <summary>
+    /// Texto que tiene que aparecer en la respuesta. Si llega otra cosa, hay un portal cautivo en el
+    /// medio: la petición «funcionó» pero no habla con quien creemos.
+    /// </summary>
+    public string ExpectedBody { get; init; } = "Microsoft Connect Test";
+
+    /// <summary>
+    /// Tope de la comprobación. Corto a propósito: es un chequeo previo, no puede hacer esperar al
+    /// técnico frente a una pantalla quieta.
+    /// </summary>
+    public int TimeoutSeconds { get; init; } = 8;
 }
 
 public sealed record ThresholdOptions

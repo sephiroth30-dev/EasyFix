@@ -210,13 +210,66 @@ public sealed class WingetResultParserTests
     }
 
     [Fact]
-    public void CodigoDeYaInstalado_NoEsUnFallo()
+    public void CodigoDeYaInstalado_ConfirmadoPorLaSalida_NoEsUnFallo()
     {
+        // El código coincide Y winget lo dice: hay evidencia, cuenta como éxito.
         WingetResult result = WingetResultParser.Parse(
-            "7zip.7zip", Result(WingetErrorCodes.PackageAlreadyInstalled));
+            "7zip.7zip",
+            Result(WingetErrorCodes.PackageAlreadyInstalled, "7-Zip is already installed."));
 
         Assert.Equal(WingetOutcome.AlreadyInstalled, result.Outcome);
         Assert.True(result.PackageAvailable);
+    }
+
+    [Fact]
+    public void CodigoDeYaInstalado_SinNadaQueLoConfirme_SeReportaComoFallo()
+    {
+        // ESTE ES EL TEST QUE IMPORTA. La constante 0x8A150056 está transcrita de memoria y nunca se
+        // vio en un log. Si está mal, apunta a algún error real de winget — y como «ya estaba
+        // instalado» cuenta como paquete disponible, EasyFix reportaría un ÉXITO que no ocurrió.
+        //
+        // Un éxito falso no deja rastro y no se puede diagnosticar después. Un fallo falso se ve y se
+        // corrige. Sin confirmación, se elige el fallo.
+        WingetResult result = WingetResultParser.Parse(
+            "7zip.7zip", Result(WingetErrorCodes.PackageAlreadyInstalled));
+
+        Assert.Equal(WingetOutcome.Failed, result.Outcome);
+        Assert.False(result.PackageAvailable);
+
+        // Y se dice por qué, para que el técnico pueda comprobarlo a mano.
+        Assert.Contains("no se pudo confirmar", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LaTablaDelEquipoManda_SobreNuestrasConstantes()
+    {
+        // Con la tabla cargada, el símbolo lo provee winget y las constantes dejan de importar: un
+        // código que no está en ninguna constante nuestra igual se reconoce bien.
+        WingetErrorTable table = WingetErrorTable.Parse(
+            "0x8A15002B  APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE  No applicable update found\n" +
+            "0x8A150099  APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED  Already installed\n");
+
+        WingetResult result = WingetResultParser.Parse(
+            "7zip.7zip", Result(unchecked((int)0x8A150099)), table);
+
+        Assert.Equal(WingetOutcome.AlreadyInstalled, result.Outcome);
+    }
+
+    [Fact]
+    public void LaTablaDelEquipoTambienPuedeDesmentirUnaConstanteNuestra()
+    {
+        // El caso inverso y el más valioso: la tabla dice que 0x8A150056 es otra cosa. Se le cree a
+        // winget, no a la constante, y se reporta el fallo.
+        WingetErrorTable table = WingetErrorTable.Parse(
+            "0x8A150056  APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE  El paquete está en uso\n");
+
+        WingetResult result = WingetResultParser.Parse(
+            "7zip.7zip",
+            Result(WingetErrorCodes.PackageAlreadyInstalled, "7-Zip is already installed."),
+            table);
+
+        Assert.Equal(WingetOutcome.Failed, result.Outcome);
+        Assert.Contains("INSTALL_PACKAGE_IN_USE", result.Detail);
     }
 
     [Fact]
@@ -238,8 +291,14 @@ public sealed class WingetResultParserTests
         // paquete ya está en su última versión. Se reportaba como "no encontrado", así que 7-Zip y
         // Visual C++ Redistributable —que la propia app había instalado dos horas antes— aparecían
         // en rojo.
+        //
+        // Es el stdout real que devuelve winget en ese caso. Hace falta porque ahora «ya estaba
+        // instalado» exige confirmación: es el único desenlace que cuenta un código de error como
+        // éxito, y una constante equivocada ahí produciría un éxito falso.
         WingetResult result = WingetResultParser.Parse(
-            "7zip.7zip", Result(WingetErrorCodes.UpdateNotApplicable));
+            "7zip.7zip",
+            Result(WingetErrorCodes.UpdateNotApplicable,
+                "No newer package versions are available from the configured sources."));
 
         Assert.Equal(WingetOutcome.AlreadyInstalled, result.Outcome);
         Assert.True(result.PackageAvailable);
@@ -384,7 +443,8 @@ public sealed class WingetResultParserTests
         {
             WingetResultParser.Parse("A", Result(0, "Successfully installed")),
             WingetResultParser.Parse("B", Result(0, "Successfully installed")),
-            WingetResultParser.Parse("C", Result(WingetErrorCodes.PackageAlreadyInstalled)),
+            WingetResultParser.Parse("C",
+                Result(WingetErrorCodes.PackageAlreadyInstalled, "C is already installed.")),
             WingetResultParser.Parse("D", Result(WingetErrorCodes.NoApplicationsFound)),
         };
 

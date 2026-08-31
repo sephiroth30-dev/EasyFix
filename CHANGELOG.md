@@ -17,6 +17,114 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.8.0] — 2026-08-31
+
+Detección de red. Cierra el «simplemente no instaló nada» de los logs del 2026-08-29, cuya causa era
+que **el equipo no tenía internet** y EasyFix no lo comprobaba en ningún momento.
+
+Lo grave no era el fallo: era que la herramienta **inventó una causa**. La evidencia de que no había
+DNS estaba en el log 365 ms antes de la primera llamada a winget, y nadie la consumió.
+
+### La secuencia real, del log
+
+1. `06:36:02.800` — Chrome falla con `SocketException (11001)` = `WSAHOST_NOT_FOUND` resolviendo
+   `dl.google.com`. Se reportó como «No se pudo descargar Google Chrome: Host desconocido», que es
+   cierto pero deja al técnico el trabajo de traducirlo.
+2. `06:36:03.165` — arranca winget. Devuelve `0x8A15000F`, error real, pero cuyo motivo era la misma
+   falta de red.
+3. EasyFix lo atribuye **tres veces** a la sesión elevada, una causa que nunca midió.
+4. `06:36:11.322` — declara «Fuentes de winget reparadas».
+5. `06:36:19.560` — vuelve el mismo error, 8,2 s después de haberlo declarado resuelto.
+
+### Agregado
+
+- **Compuerta de red antes de instalar.** `IConnectivityCheck` se evalúa **una vez por tanda** y, sin
+  conexión, **no se lanza ningún proceso**: ni winget ni las descargas directas. Es lo que garantiza
+  que el diagnóstico no pueda equivocarse — no hay error ajeno que malinterpretar.
+
+  Los tests lo verifican con un runner y un descargador que **revientan si alguien los invoca**: que
+  el test pase es la prueba de que la compuerta cortó antes.
+
+- **Cinco estados de fallo, no uno.** `NoAdapter`, `DnsFailed`, `Unreachable`, `CaptivePortal`,
+  `Unknown` — cada uno lleva a una acción distinta del técnico. «Sin conexión» a secas manda a revisar
+  el cable cuando el problema puede ser el portal cautivo de un wifi de hotel.
+
+  `Unknown` **no autoriza a intentar**: una comprobación que no se pudo hacer no es evidencia de que
+  haya internet. Misma regla que el resto del diagnóstico.
+
+- **Detección de portal cautivo.** La comprobación va por **HTTP a propósito**, y está documentado en
+  el código y en `appsettings.json` para que no se «arregle» por error: sobre HTTPS un portal produce
+  un error de certificado indistinguible de un firewall. No se descarga nada ejecutable — son 22 bytes
+  de texto contra una constante. Los instaladores siguen exigiendo HTTPS sin excepción.
+
+- **El reporte lo dice antes de apretar el botón.** `SystemSnapshot.Network` y el hallazgo
+  `network.offline`, con el motivo concreto y la aclaración de que analizar, mejorar y reparar **sí
+  funcionan** sin internet. La comprobación corre en paralelo con las sondas, así que no alarga el
+  análisis. `null` = no comprobado: no genera hallazgo, no se afirma nada.
+
+- **`Network` en `appsettings.json`** — endpoint, cuerpo esperado y timeout. Configurable porque una
+  red corporativa puede bloquear el endpoint por defecto, y entonces EasyFix diría «sin internet» en
+  un equipo que sí tiene.
+
+### Corregido
+
+- **«Fuentes de winget reparadas» era mentira.** Se declaraba mirando el código de salida de
+  `winget source reset`. Que el comando corra no significa que el catálogo quedó legible. Ahora la
+  única prueba admitida es que **el reintento funcione**, y se registra el resultado real en los dos
+  casos.
+
+- **Un fallo de catálogo confirmado no se repite paquete por paquete.** Cuando la reparación se hizo y
+  no sirvió, los paquetes de winget restantes se resuelven sin lanzar el proceso. En el log eran tres
+  párrafos idénticos recomendando la reparación que ya había fallado. Los de descarga directa **sí**
+  se siguen intentando: no usan el catálogo.
+
+- **El log no tenía ni una palabra de winget.** Solo se registraba `stderr`, y winget escribe sus
+  diagnósticos en `stdout`: por eso cuatro líneas del log terminaban literalmente en «stderr: ».
+  Ahora se registran las dos. DISM y sfc hacen lo mismo.
+
+  Con eso apareció el problema opuesto —la animación de progreso son cientos de cuadros del mismo
+  renglón reescrito con `\r`, y truncar a 2000 caracteres se quedaba con puro ruido—, así que
+  `ProcessOutput` conserva el último cuadro de cada línea y descarta los renglones que son solo
+  animación. **El texto real no se toca.**
+
+- **Una constante equivocada ya no puede producir un éxito falso.** «Ya estaba instalado» cuenta como
+  paquete disponible, o sea que es el único camino por el que un código de error se convierte en
+  éxito reportado. Dos constantes de esta clase ya estuvieron mal una vez, y las de «ya instalado»
+  nunca se pudieron verificar contra un Windows.
+
+  Ahora ese desenlace exige confirmación independiente: la tabla del propio winget del equipo (por el
+  **nombre** del símbolo, que sí es estable entre versiones) o que winget lo diga por texto, en
+  español o en inglés. Sin confirmación se reporta el fallo con el código en crudo, explicando que
+  podría estar instalado y no se pudo confirmar. Un fallo falso se ve y se corrige; un éxito falso no
+  deja rastro.
+
+- **Tres constantes marcadas como sin verificar**, una por una, con el efecto concreto si están mal.
+  El comentario de la clase afirmaba que todas estaban verificadas contra la documentación, lo que era
+  precisamente el tipo de afirmación no medida que este proyecto trata de evitar.
+
+- **`FileVersion` y `AssemblyVersion` estaban clavados en 0.6.0.0** mientras `Version` iba en 0.8.0:
+  la barra de título decía una versión y Propiedades → Detalles del `.exe` decía otra. Ahora se
+  derivan de `Version`. Verificado en el binario publicado: `0.8.0` presente, `0.6.0.0` ausente.
+
+### Decisión tomada y descartada
+
+**No se bloquea «Reparar errores» sin internet.** Era el uso obvio de `FixBlockReason.NoNetwork`, y
+está mal: `DISM /ScanHealth` es de solo lectura y no necesita conexión, y `SystemFileRepairFix` lo
+corre primero. Bloquearlo rompería algo que hoy funciona. El enum sigue sin usarse, a propósito.
+
+### Todavía sin verificar en Windows
+
+Toda esta versión. La causa raíz se estableció leyendo los logs, no reproduciéndola. Y quedan
+pendientes de comprobar tres cosas que los logs dejan sospechosas y que **no** se tocaron acá: que el
+reporte diga `disco.salud = Healthy` con la sonda de disco en timeout, que concluya «0 hallazgos de
+hardware» con la sonda de pantallazos en timeout, y los tres códigos de winget sin verificar.
+
+Para cerrar los códigos hace falta la salida de `winget error --output <archivo>` de un equipo con
+winget 1.6 o superior. En winget 1.24 y anteriores ese comando devuelve `INVALID_CL_ARGUMENTS` —es lo
+que pasó en el equipo del log—, así que ahí las constantes son la única fuente.
+
+---
+
 ## [0.7.0] — 2026-08-29
 
 Barra de progreso real y mensajes en castellano de persona. El defecto que había detrás del síntoma

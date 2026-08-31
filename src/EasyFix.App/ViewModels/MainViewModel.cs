@@ -5,6 +5,7 @@ using EasyFix.Core.Apps;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Diagnostics;
 using EasyFix.Core.Fixes;
+using EasyFix.Core.Network;
 using EasyFix.Core.Recommendations;
 using EasyFix.Core.Rollback;
 using Microsoft.Extensions.Logging;
@@ -40,6 +41,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly SystemProbe _probe;
     private readonly HardwareAdvisor _advisor;
     private readonly WingetService _winget;
+    private readonly IConnectivityCheck _connectivity;
     private readonly FixRunner _fixRunner;
     private readonly IEnumerable<IFix> _fixes;
     private readonly UndoEngine _undoEngine;
@@ -60,6 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         SystemProbe probe,
         HardwareAdvisor advisor,
         WingetService winget,
+        IConnectivityCheck connectivity,
         FixRunner fixRunner,
         IEnumerable<IFix> fixes,
         UndoEngine undoEngine,
@@ -70,6 +73,7 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(advisor);
         ArgumentNullException.ThrowIfNull(winget);
+        ArgumentNullException.ThrowIfNull(connectivity);
         ArgumentNullException.ThrowIfNull(fixRunner);
         ArgumentNullException.ThrowIfNull(fixes);
         ArgumentNullException.ThrowIfNull(undoEngine);
@@ -80,6 +84,7 @@ public sealed partial class MainViewModel : ObservableObject
         _probe = probe;
         _advisor = advisor;
         _winget = winget;
+        _connectivity = connectivity;
         _fixRunner = fixRunner;
         _fixes = fixes;
         _undoEngine = undoEngine;
@@ -371,6 +376,7 @@ public sealed partial class MainViewModel : ObservableObject
         WingetOutcome.AlreadyInstalled => "ya estaba",
         WingetOutcome.NotInCatalog => "no está en el catálogo",
         WingetOutcome.SourceUnavailable => "sin catálogo de winget",
+        WingetOutcome.NoNetwork => "sin internet",
         WingetOutcome.WingetMissing => "falta winget",
         WingetOutcome.TimedOut => "se pasó del tiempo",
         WingetOutcome.NoApplicableInstaller => "sin instalador compatible",
@@ -499,7 +505,25 @@ public sealed partial class MainViewModel : ObservableObject
 
         try
         {
+            // La conexión se comprueba EN PARALELO con las sondas, no después: tarda hasta 8 s y
+            // sumarlos al final alargaría el análisis por algo que no depende de él.
+            Task<ConnectivityResult> networkTask = _connectivity.CheckAsync(_cts!.Token);
+
             ProbeResult result = await _probe.ProbeAsync(progress, _cts!.Token);
+
+            ConnectivityResult network = await networkTask;
+
+            // Que el reporte lo diga ANTES de que el técnico apriete «Instalar programas». En el
+            // equipo del 2026-08-29 se enteró al revés: cuatro fallos, y con el motivo equivocado.
+            result = result with { Snapshot = result.Snapshot with { Network = network.Status } };
+
+            if (!network.IsOnline)
+            {
+                _logger.LogWarning(
+                    "Sin internet ({Status}): {Detail} {Technical}",
+                    network.Status, network.Detail, network.TechnicalDetail);
+            }
+
             _lastProbe = result;
             _lastCrash = CrashAnalyzer.Analyze(result.Crash);
 

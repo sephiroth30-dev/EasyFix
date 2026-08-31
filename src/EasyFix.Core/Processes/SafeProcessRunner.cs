@@ -176,9 +176,21 @@ public sealed class SafeProcessRunner : IProcessRunner
             }
             else
             {
+                // SE REGISTRAN LAS DOS SALIDAS, no solo stderr.
+                //
+                // winget escribe sus diagnósticos en stdout y deja stderr vacío. Registrando solo
+                // stderr, el log del 2026-08-29 quedó con cuatro líneas que terminaban literalmente
+                // en «stderr: » y ni una palabra de winget en 71 líneas: todo lo que se leía sobre el
+                // fallo era texto fijo de EasyFix explicando una causa que nadie había medido.
+                //
+                // DISM y sfc hacen lo mismo. Es la salida que hay que leer cuando el código de salida
+                // no alcanza para saber qué pasó.
                 _logger.LogWarning(
-                    "{Exe} terminó con código {Code}. stderr: {Error}",
-                    executablePath, exitCode, Truncate(result.StandardError, 500));
+                    "{Exe} terminó con código {Code}.\n  stdout: {Output}\n  stderr: {Error}",
+                    executablePath,
+                    exitCode,
+                    ProcessOutput.ForLog(result.StandardOutput, 2000),
+                    ProcessOutput.ForLog(result.StandardError, 500));
             }
         }
 
@@ -200,6 +212,4 @@ public sealed class SafeProcessRunner : IProcessRunner
         }
     }
 
-    private static string Truncate(string value, int max) =>
-        value.Length <= max ? value : value[..max] + "…";
 }

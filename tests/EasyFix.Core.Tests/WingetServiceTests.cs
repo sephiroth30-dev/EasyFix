@@ -1,6 +1,8 @@
 using EasyFix.Core.Abstractions;
 using EasyFix.Core.Apps;
 using EasyFix.Core.Configuration;
+using EasyFix.Core.Network;
+using EasyFix.Core.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -86,12 +88,18 @@ public sealed class WingetServiceTests
             throw new InvalidOperationException("No debería resolverse nada en estos tests.");
     }
 
-    private static WingetService Build(IProcessRunner runner, string? wingetPath = WingetPath) =>
+    private static WingetService Build(
+        IProcessRunner runner,
+        string? wingetPath = WingetPath,
+        IConnectivityCheck? connectivity = null) =>
         new(runner,
             new FakeLocator(wingetPath),
             new DirectDownloadInstaller(
                 new UnusedDownloader(), runner, new ThresholdOptions(),
                 NullLogger<DirectDownloadInstaller>.Instance),
+            // Por defecto con internet: estos tests ejercitan la vía de winget, y la compuerta de red
+            // tiene sus propios tests más abajo.
+            connectivity ?? FakeConnectivityCheck.Online(),
             new ThresholdOptions(),
             NullLogger<WingetService>.Instance);
 

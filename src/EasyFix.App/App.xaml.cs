@@ -13,6 +13,7 @@ using EasyFix.Core.Cleaning;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Diagnostics;
 using EasyFix.Core.Fixes;
+using EasyFix.Core.Network;
 using EasyFix.Core.Processes;
 using EasyFix.Core.Recommendations;
 using EasyFix.Core.Rollback;
@@ -81,6 +82,7 @@ public partial class App : Application
         services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Thresholds);
         services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Classifier);
         services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Branding);
+        services.AddSingleton(sp => sp.GetRequiredService<EasyFixOptions>().Network);
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IFileTree, PhysicalFileTree>();
@@ -94,6 +96,10 @@ public partial class App : Application
         services.AddSingleton<IWingetLocator, WingetLocator>();
         services.AddSingleton<IFileDownloader, HttpFileDownloader>();
         services.AddSingleton<DirectDownloadInstaller>();
+
+        // La compuerta de red. Sin esto, un equipo sin internet producía tres diagnósticos falsos
+        // seguidos culpando al catálogo de winget. Ver WingetService.InstallAsync.
+        services.AddSingleton<IConnectivityCheck, HttpConnectivityCheck>();
         services.AddSingleton<WingetService>();
         services.AddSingleton<ServiceConditionEvaluator>();
 

@@ -1,5 +1,6 @@
 using EasyFix.Core.Abstractions;
 using EasyFix.Core.Configuration;
+using EasyFix.Core.Network;
 using Microsoft.Extensions.Logging;
 
 namespace EasyFix.Core.Apps;
@@ -37,11 +38,24 @@ public sealed class WingetService
     private readonly IProcessRunner _runner;
     private readonly IWingetLocator _locator;
     private readonly DirectDownloadInstaller _directInstaller;
+    private readonly IConnectivityCheck _connectivity;
     private readonly ThresholdOptions _thresholds;
     private readonly ILogger<WingetService> _logger;
 
     /// <summary>Se intenta reparar las fuentes una sola vez por corrida.</summary>
     private bool _sourceRepairAttempted;
+
+    /// <summary>
+    /// El catálogo quedó confirmado como ilegible: la reparación se hizo y no sirvió.
+    /// </summary>
+    /// <remarks>
+    /// Los paquetes de winget que falten se resuelven sin lanzar el proceso. En el equipo del
+    /// 2026-08-29 los tres paquetes siguientes repitieron el mismo error uno por uno, cada uno con su
+    /// propio párrafo idéntico en el log recomendando la reparación que ya se había hecho y ya había
+    /// fallado. No aporta información y hace perder segundos por paquete.
+    /// <para>Los de descarga directa <b>sí</b> se siguen intentando: no usan el catálogo.</para>
+    /// </remarks>
+    private WingetResult? _catalogUnusable;
 
     /// <summary>Tabla de códigos del winget del equipo. Se carga una vez por corrida.</summary>
     private WingetErrorTable? _errorTable;
@@ -50,18 +64,21 @@ public sealed class WingetService
         IProcessRunner runner,
         IWingetLocator locator,
         DirectDownloadInstaller directInstaller,
+        IConnectivityCheck connectivity,
         ThresholdOptions thresholds,
         ILogger<WingetService> logger)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(directInstaller);
+        ArgumentNullException.ThrowIfNull(connectivity);
         ArgumentNullException.ThrowIfNull(thresholds);
         ArgumentNullException.ThrowIfNull(logger);
 
         _runner = runner;
         _locator = locator;
         _directInstaller = directInstaller;
+        _connectivity = connectivity;
         _thresholds = thresholds;
         _logger = logger;
     }
@@ -99,7 +116,44 @@ public sealed class WingetService
         var results = new List<WingetResult>(packages.Count);
 
         _sourceRepairAttempted = false;
+        _catalogUnusable = null;
         _errorTable = null;
+
+        // LA COMPUERTA DE RED. Va antes de todo y se evalúa una sola vez.
+        //
+        // Todo lo que instala EasyFix se descarga en el momento, así que sin internet no hay nada que
+        // intentar. Sin esta comprobación, en el equipo del 2026-08-29 el proceso fue: la descarga
+        // directa de Chrome falló con SocketException 11001 (DNS caído), y 365 ms después arrancó la
+        // primera llamada a winget, que devolvió «catálogo no disponible» — un error real pero cuyo
+        // motivo era la misma falta de red. EasyFix lo atribuyó tres veces a la sesión elevada, corrió
+        // una reparación de fuentes que no podía servir de nada, y declaró «Fuentes de winget
+        // reparadas» ocho segundos antes de que el mismo error volviera.
+        //
+        // La evidencia de que no había red ya estaba en el log. Lo que faltaba era consumirla.
+        if (packages.Count > 0)
+        {
+            ConnectivityResult connectivity = await _connectivity.CheckAsync(ct).ConfigureAwait(false);
+
+            if (!connectivity.IsOnline)
+            {
+                _logger.LogWarning(
+                    "No se instala nada: sin internet ({Status}). {Technical}",
+                    connectivity.Status, connectivity.TechnicalDetail);
+
+                for (int i = 0; i < packages.Count; i++)
+                {
+                    WingetPackage offline = packages[i];
+                    var result = WingetResultParser.Offline(offline.Id, connectivity);
+
+                    progress?.Report(new InstallProgress(
+                        offline.Id, offline.Name, i + 1, packages.Count, result));
+
+                    results.Add(result);
+                }
+
+                return results;
+            }
+        }
 
         for (int i = 0; i < packages.Count; i++)
         {
@@ -131,6 +185,16 @@ public sealed class WingetService
                 {
                     result = WingetResultParser.Missing(package.Id);
                 }
+                else if (_catalogUnusable is { } known)
+                {
+                    // Ya se comprobó en esta corrida que el catálogo no se puede leer y que repararlo
+                    // no sirvió. Lanzar winget de nuevo daría el mismo error, más lento.
+                    _logger.LogInformation(
+                        "{Package}: no se intenta, el catálogo de winget ya quedó descartado en esta " +
+                        "corrida.", package.Id);
+
+                    result = known with { PackageId = package.Id };
+                }
                 else
                 {
                     await LoadErrorTableAsync(winget, ct).ConfigureAwait(false);
@@ -151,9 +215,32 @@ public sealed class WingetService
 
                         if (await TryRepairSourcesAsync(winget, ct).ConfigureAwait(false))
                         {
+                            // NO se dice «reparadas» acá. Que «source reset» devuelva 0 significa que
+                            // el comando corrió, no que el catálogo quedó legible: en el equipo del
+                            // 2026-08-29 el log afirmó «Fuentes de winget reparadas» y 8,2 s después
+                            // volvió el mismísimo error. La única prueba de que se reparó es que el
+                            // reintento funcione, así que se espera a tenerla.
                             _logger.LogInformation(
-                                "Fuentes de winget reparadas. Reintentando {Package}.", package.Id);
+                                "Se ejecutó la reparación de fuentes. Reintentando {Package} para ver " +
+                                "si sirvió.", package.Id);
+
                             result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
+
+                            if (result.Outcome == WingetOutcome.SourceUnavailable)
+                            {
+                                _logger.LogError(
+                                    "La reparación de fuentes NO sirvió: {Package} sigue devolviendo " +
+                                    "el mismo error de catálogo. No se vuelve a intentar en esta corrida.",
+                                    package.Id);
+
+                                _catalogUnusable = result;
+                            }
+                            else
+                            {
+                                _logger.LogInformation(
+                                    "La reparación de fuentes sirvió: {Package} pasó a {Outcome}.",
+                                    package.Id, result.Outcome);
+                            }
                         }
                     }
                     else if (result.ExitCode is int code && WingetErrorCodes.IsWorthRetrying(code))

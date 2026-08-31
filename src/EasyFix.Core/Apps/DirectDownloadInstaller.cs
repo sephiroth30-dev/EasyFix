@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using EasyFix.Core.Abstractions;
 using EasyFix.Core.Configuration;
+using EasyFix.Core.Network;
 using Microsoft.Extensions.Logging;
 
 namespace EasyFix.Core.Apps;
@@ -89,6 +90,12 @@ public sealed class DirectDownloadInstaller
         catch (Exception ex)
         {
             _logger.LogError(ex, "No se pudo resolver la URL de {Package}.", package.Id);
+
+            if (AsNetworkFailure(package, ex) is { } offline)
+            {
+                return offline;
+            }
+
             return new WingetResult(package.Id, WingetOutcome.Failed,
                 $"No se pudo averiguar de dónde bajar {package.Name}: {ex.Message}", null);
         }
@@ -116,6 +123,12 @@ public sealed class DirectDownloadInstaller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Falló la descarga de {Package}.", package.Id);
+
+            if (AsNetworkFailure(package, ex) is { } offline)
+            {
+                return offline;
+            }
+
             return new WingetResult(package.Id, WingetOutcome.Failed,
                 $"No se pudo descargar {package.Name}: {ex.Message}", null);
         }
@@ -154,6 +167,32 @@ public sealed class DirectDownloadInstaller
             // El instalador descargado no tiene por qué quedar en el disco del cliente.
             TryDelete(installerPath);
         }
+    }
+
+    /// <summary>
+    /// Devuelve un resultado de «sin internet» si la excepción es de red, o <c>null</c> si no lo es.
+    /// </summary>
+    /// <remarks>
+    /// El caso del log del 2026-08-29: <c>SocketException 11001</c> resolviendo <c>dl.google.com</c>
+    /// se reportaba como «No se pudo descargar Google Chrome: Host desconocido. (dl.google.com:443)».
+    /// Es cierto, pero le deja al técnico el trabajo de saber que «host desconocido» quiere decir
+    /// «este equipo no tiene internet» — y en ese equipo nadie lo hizo: el diagnóstico siguió como si
+    /// el problema fuera de winget.
+    /// </remarks>
+    private WingetResult? AsNetworkFailure(WingetPackage package, Exception exception)
+    {
+        if (NetworkDiagnosis.FindSocketException(exception) is null)
+        {
+            return null;
+        }
+
+        ConnectivityResult diagnosis = NetworkDiagnosis.Classify(exception);
+
+        _logger.LogWarning(
+            "{Package} no se pudo descargar por falta de red ({Status}). {Technical}",
+            package.Id, diagnosis.Status, diagnosis.TechnicalDetail);
+
+        return WingetResultParser.Offline(package.Id, diagnosis);
     }
 
     private async Task<Uri?> ResolveUrlAsync(

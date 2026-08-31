@@ -1,5 +1,6 @@
 using System.Globalization;
 using EasyFix.Core.Configuration;
+using EasyFix.Core.Network;
 
 namespace EasyFix.Core.Diagnostics;
 
@@ -26,6 +27,7 @@ public static class SoftwareFindings
         AddStartupEntries(snapshot, findings);
         AddBitLockerNotice(snapshot, findings);
         AddDomainNotice(snapshot, findings);
+        AddNetworkNotice(snapshot, findings);
 
         return findings
             .OrderByDescending(f => f.Severity)
@@ -115,4 +117,68 @@ public static class SoftwareFindings
             "modo restringido: solo limpieza de temporales y cachés.",
             new[] { new Metric("Modo", "Restringido") }));
     }
+
+    /// <summary>
+    /// Avisa si el equipo no tiene internet, con el motivo concreto.
+    /// </summary>
+    /// <remarks>
+    /// <para>Sale en el reporte, o sea <b>antes</b> de que el técnico apriete «Instalar programas». En
+    /// el equipo del 2026-08-29 se enteró al revés: probó a instalar cuatro programas, fallaron los
+    /// cuatro, y el log le echó la culpa al catálogo de winget.</para>
+    ///
+    /// <para>Un estado sin medir (<c>null</c>) no genera hallazgo: no se afirma que haya internet ni
+    /// que falte.</para>
+    /// </remarks>
+    private static void AddNetworkNotice(SystemSnapshot s, List<Finding> findings)
+    {
+        if (s.Network is not ConnectivityStatus status || status == ConnectivityStatus.Online)
+        {
+            return;
+        }
+
+        (string title, string detail) = status switch
+        {
+            ConnectivityStatus.NoAdapter => (
+                "El equipo no está conectado a ninguna red",
+                "No hay cable de red conectado ni wifi asociado."),
+
+            ConnectivityStatus.DnsFailed => (
+                "El equipo no tiene internet",
+                "Está conectado a la red local pero no puede resolver nombres: o no hay salida a " +
+                "internet, o el DNS está mal configurado."),
+
+            ConnectivityStatus.CaptivePortal => (
+                "La red exige iniciar sesión en el navegador",
+                "Es una red de hotel, aeropuerto o cafetería: hay que abrir el navegador y aceptar " +
+                "su página antes de tener internet."),
+
+            ConnectivityStatus.Unknown => (
+                "No se pudo comprobar si hay internet",
+                "La comprobación no se pudo completar. Se asume que no hay conexión, que es lo " +
+                "seguro: no se va a intentar descargar nada."),
+
+            _ => (
+                "El equipo no llega a internet",
+                "Hay red pero la conexión no sale. Suele ser un firewall, un antivirus o un proxy."),
+        };
+
+        findings.Add(new Finding(
+            "network.offline",
+            Severity.Warning,
+            title,
+            detail + " «Instalar programas» no va a funcionar: EasyFix descarga todo en el momento " +
+                     "para que entre siempre la última versión, así que nada viene dentro del programa. " +
+                     "El resto —analizar, mejorar el rendimiento y reparar errores— sí funciona sin internet.",
+            new[] { new Metric("Conexión", DescribeStatus(status)) }));
+    }
+
+    private static string DescribeStatus(ConnectivityStatus status) => status switch
+    {
+        ConnectivityStatus.NoAdapter => "Sin red",
+        ConnectivityStatus.DnsFailed => "Sin DNS",
+        ConnectivityStatus.Unreachable => "Sin salida",
+        ConnectivityStatus.CaptivePortal => "Portal cautivo",
+        ConnectivityStatus.Unknown => "No comprobada",
+        _ => status.ToString(),
+    };
 }
