@@ -25,8 +25,10 @@ El log tiene el detalle de cada sonda, cada llamada a winget con su código de s
 
 - [ ] Doble click → aparece el aviso de administrador (UAC) → aceptar.
 - [ ] SmartScreen dice que es desconocido → «Más información» → «Ejecutar de todas formas».
-- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.5.0`.
-- [ ] Click derecho en el `.exe` → Propiedades → Detalles: aparece la empresa y el copyright.
+- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.8.0`.
+- [ ] Click derecho en el `.exe` → Propiedades → Detalles: aparece la empresa y el copyright, y la
+      **versión del archivo dice 0.8.0.0**. Hasta v0.7.0 decía 0.6.0.0 mientras la ventana decía otra
+      cosa, así que era imposible saber qué binario estaba corriendo.
 
 **Si no arranca:** el log puede no haberse creado todavía. Capturá el mensaje de error textual.
 
@@ -58,6 +60,67 @@ Get-CimInstance Win32_Processor      | Select-Object Name, NumberOfCores
 Get-PhysicalDisk                     | Select-Object MediaType, HealthStatus, Size
 Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity, Speed, SMBIOSMemoryType
 ```
+
+### Un favor aparte, que cierra tres pendientes
+
+Si alguno de los equipos tiene **winget 1.6 o superior** (`winget --version`), correr esto y
+mandarme el archivo:
+
+```powershell
+winget error --output "$env:USERPROFILE\Desktop\winget-errores.txt"
+```
+
+Es la tabla completa de códigos de error de winget. Con eso se verifican de una las tres constantes
+que hoy están transcritas de memoria y marcadas `SIN VERIFICAR` en el código. En winget 1.24 y
+anteriores el comando no existe y devuelve `INVALID_CL_ARGUMENTS` — es lo que pasó en el equipo del
+2026-08-29, y por eso las constantes fueron la única fuente ahí.
+
+---
+
+## Nivel 1.5 — Sin internet · SEGURO, no modifica nada
+
+**La prueba más importante de v0.8.0**, y la única que reproduce a propósito el fallo del
+2026-08-29. Es solo lectura y se hace en cualquier equipo: se desconecta la red y se vuelve a
+conectar.
+
+### Preparación
+
+Desenchufar el cable de red **y** apagar el wifi. En una laptop alcanza con activar el modo avión.
+
+### Con la red desconectada
+
+- [ ] «Analizar el equipo» termina normal. **El análisis no debe tardar más que con red**: la
+      comprobación de internet corre en paralelo con las sondas, no después.
+- [ ] En el reporte aparece un aviso naranja: **«El equipo no está conectado a ninguna red»**.
+- [ ] Ese aviso dice que «Instalar programas» no va a funcionar, **y también** que analizar, mejorar
+      el rendimiento y reparar errores sí funcionan sin internet.
+- [ ] En el log, la última línea del resumen dice `internet = NoAdapter`.
+- [ ] Marcar los programas → «Instalar»: **los cuatro dicen «sin internet»**, no «falló» ni «sin
+      catálogo de winget».
+- [ ] El resumen de abajo dice **«No se instaló nada: el equipo no tiene internet»**. No debe decir
+      «4 con error».
+- [ ] **Lo más importante, en el log:** NO puede aparecer ninguna línea de `winget.exe`, ni
+      «SourceUnavailable», ni «sesión elevada», ni «Fuentes de winget reparadas». Sin conexión no se
+      lanza ningún proceso. Si aparece cualquiera de esas líneas, la compuerta no funcionó.
+- [ ] Toda la operación de instalar debe terminar en **menos de 10 segundos**: es una comprobación de
+      8 s como techo y nada más.
+
+### Volviendo a conectar la red
+
+- [ ] Analizar de nuevo: el aviso naranja **desaparece** y el log dice `internet = Online`.
+- [ ] Instalar: funciona normal.
+
+### Caso opcional, si se puede
+
+Conectarse a un wifi con portal cautivo (hotel, cafetería, aeropuerto) **sin** aceptar su página.
+Esperado: el aviso dice **«La red exige iniciar sesión en el navegador»**, no «no hay internet». El
+log dice `internet = CaptivePortal`.
+
+### Qué capturar
+
+1. Captura del reporte con el aviso naranja.
+2. El log completo de la corrida sin red — sirve sobre todo para confirmar que **no** hay líneas de
+   winget.
 
 ---
 
