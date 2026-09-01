@@ -4,223 +4,202 @@
 > Versionado con el código, así que viaja con el repo. El `README.md` es el resumen para quien llega
 > nuevo; esto es el detalle para seguir trabajando.
 
-> Al retomar, leer en este orden: **v0.4.0 — Plan activo** → **Estado actual** → la sección del
-> componente que se vaya a tocar.
+> Al retomar, leer en este orden: **v0.8.0 — Estado y plan activo** → la sección del componente que
+> se vaya a tocar. El resto del documento es material de referencia que cambia poco: objetivo,
+> arquitectura, catálogos de diagnóstico y de fixes.
 
-## v0.4.0 — Plan activo: hacer que funcione
+## v0.8.0 — Estado y plan activo
 
-### Context
+> Última actualización: 2026-09-01, después de v0.8.0.
+> Rama `main`, árbol limpio, tag `v0.8.0`. **432 tests pasan, 2 se omiten** (los que exigen Windows).
+> `dotnet build` limpio en los tres proyectos, incluido el de WPF. `.exe` portable de 69 MiB.
 
-Se probó v0.3.0 en un equipo real (log del 2026-08-25, 96 líneas). La lectura inicial fue «todo
-error», pero el log dice algo distinto y mucho más útil: **la mayor parte funcionó**, y los fallos
-tienen cuatro causas concretas, todas identificadas con evidencia.
+### Dónde está el proyecto
 
-Lo grave no es que fallara: es que **la app reportó fallo donde hubo éxito**. Dos programas que ya
-estaban instalados se reportaron como «no encontrado», y el punto de restauración que sí se creaba se
-reportaba como no creado — lo que llevó al usuario a trabajar sin red de seguridad cuando la red
-existía. Un diagnóstico que miente es peor que uno que falta.
+Las tres acciones están conectadas y funcionan de punta a punta: **analizar**, **mejorar
+rendimiento**, **reparar errores**, más **instalar programas** y **deshacer todo**. Lo que falta no es
+capacidad — es **verificación en Windows**. Ver «Lo que nunca se ejecutó en Windows», abajo.
 
-### Lo que el log prueba que YA FUNCIONA
+### El hilo conductor de las últimas cuatro versiones
 
-No hay que tocar nada de esto:
+Las cuatro salieron del mismo tipo de defecto, y conviene tenerlo presente antes de escribir código
+nuevo: **la herramienta afirmaba cosas que no había medido.**
 
-| Componente | Evidencia en el log |
-|---|---|
-| `WingetLocator` bajo `Program Files\WindowsApps` | líneas 6, 26, 85 — lo encontró siempre |
-| Instalación con winget | líneas 9, 12 — 7-Zip y VCRedist instalados, código 0 |
-| Descarga directa desde GitHub | líneas 94-96 — resolvió RustDesk 1.4.9, bajó el asset, lanzó el instalador |
-| Override del punto de restauración | líneas 36, 61 — continuó por decisión explícita |
-| `SystemFileRepairFix` (DISM + sfc) | líneas 37-40 — reparó de verdad, 10 min |
-| `DiskCheckFix` | línea 42 — `NothingToDo`, sin errores |
-| `WindowsUpdateResetFix` | línea 54 — reconstruyó `SoftwareDistribution` y `catroot2` |
-| `NetworkStackResetFix` | línea 59 — aplicado, pide reinicio |
-| Journal y logging | el log entero es legible y suficiente para diagnosticar |
-
-### Los cuatro fallos, con su causa
-
-**F1 · El punto de restauración se reportaba como no creado, y sí se creaba.** (P0)
-
-Líneas 2, 4, 33, 35, 60: *«reportó éxito pero la secuencia no aumentó (210 → 210)»*. Pero entre
-corridas la secuencia avanzó **210 → 213 → 214**: los puntos se estaban creando.
-
-Causa: `SRSetRestorePoint` —la API detrás de `CreateRestorePoint`— es **asíncrona**. Cuando
-`RestorePointService.CreateVerified` enumera inmediatamente después, el punto nuevo todavía no
-aparece. La verificación es una carrera que casi siempre pierde.
-
-Segundo defecto en la misma función: la línea 33 muestra `(0 → 0)`, y veinte segundos después la
-enumeración devolvió 213. `HighestSequence()` devuelve `0` tanto cuando no hay puntos como cuando la
-consulta falla, y `0` se interpreta como «no hay». Un fallo de lectura se está tratando como un hecho.
-
-**F2 · Constantes de código de salida de winget equivocadas → fallos falsos.** (P0)
-
-Verificado contra la documentación de winget-cli:
-
-| Código | Lo que yo tenía | Lo que es de verdad |
+| Versión | El síntoma que reportó el usuario | La causa real |
 |---|---|---|
-| `0x8A15002B` | `NO_APPLICATIONS_FOUND` | **`UPDATE_NOT_APPLICABLE`** |
-| `0x8A150014` | `FAILED_TO_OPEN_ALL_SOURCES` | **`NO_APPLICATIONS_FOUND`** |
+| 0.5.0 | «todo error» en el log del 2026-08-25 | La mayor parte funcionó. El bug era que la app **reportaba fallo donde hubo éxito**: dos constantes de winget mal, y el punto de restauración se creaba pero se verificaba con una carrera perdida |
+| 0.6.0 | «conecta mejorar rendimiento» | El botón no existía. Tres componentes escritos y testeados —50 tests— sin nadie que los invocara |
+| 0.7.0 | «la barra de progreso se oculta» | No era la barra: dos fixes hacían trabajo síncrono y devolvían `Task.FromResult`, así que corrían en el hilo de la UI y Windows congelaba la ventana |
+| 0.8.0 | «simplemente no instaló nada» | **El equipo no tenía internet.** La evidencia estaba en el log 365 ms antes de la primera llamada a winget, y nadie la consumía. La app inventó una causa —«sesión elevada»— y declaró «Fuentes reparadas» 8,2 s antes de que el mismo error volviera |
 
-Consecuencia en el log: a las 13:56, 7-Zip y VCRedist devolvieron `0x8A15002B` y se reportaron como
-«NotFound» (líneas 89, 93). Pero la propia app los había instalado a las 11:58. `UPDATE_NOT_APPLICABLE`
-sobre un paquete instalado significa **«ya está y no hay nada que actualizar»** — o sea, éxito.
+La regla que salió de ahí, y que ya está aplicada en todo el código nuevo: **un dato que no se pudo
+medir nunca se cuenta como verde**, y **un éxito falso es peor que un fallo falso** porque no deja
+rastro que haga sospechar.
 
-Y `0x8A150014` en RustDesk (línea 31) era el diagnóstico correcto —el ID ya no existe en el catálogo—
-pero etiquetado como problema de fuentes.
+### v0.8.0 — detección de red
 
-**Descubrimiento que evita que esto vuelva a pasar:** `winget error --output <archivo>` exporta la
-tabla completa de códigos del winget instalado en el equipo. Se puede leer en runtime en vez de
-hardcodear constantes que pueden estar mal.
+Cierra el «no instaló nada». Lo que se agregó:
 
-**F3 · «Acceso denegado» al lanzar winget a mitad de la tanda.** (P1)
+- **`Core/Network/Connectivity.cs`** — `ConnectivityStatus` con **cinco** estados de fallo distintos
+  (`NoAdapter`, `DnsFailed`, `Unreachable`, `CaptivePortal`, `Unknown`), porque cada uno lleva a una
+  acción distinta del técnico. `NetworkDiagnosis` traduce excepciones a estados: lógica pura, testeada
+  sin red, incluido el caso exacto del log (`SocketException 11001` dentro de un
+  `HttpRequestException`, que hay que buscar recorriendo las excepciones internas).
+- **`Core/Network/ConnectivityCheck.cs`** — dos etapas: `NetworkInterface.GetIsNetworkAvailable()`
+  como descarte instantáneo del cable desenchufado, y después una petición real, que es la única forma
+  de saber si hay internet.
+- **La compuerta en `WingetService.InstallAsync`** — se evalúa **una vez por tanda**, antes de todo.
+  Sin conexión no se lanza **ningún** proceso: ni winget ni las descargas directas. Los tests usan un
+  runner y un descargador que **revientan si alguien los invoca**, así que el test pasando *es* la
+  verificación.
+- **El hallazgo `network.offline` en el reporte**, con el motivo concreto y la aclaración de que
+  analizar, mejorar y reparar **sí** funcionan sin internet. Corre en paralelo con las sondas.
+- **Sección `Network` en `appsettings.json`.**
 
-Líneas 19-25: `Win32Exception (5)` al arrancar `winget.exe`, después de que dos instalaciones
-funcionaran con ese mismo binario.
+**Decisión no obvia, documentada en tres lugares para que nadie la «arregle»:** la comprobación va por
+**HTTP y no HTTPS**. Es lo que permite detectar un portal cautivo — sobre HTTPS el portal produce un
+error de certificado indistinguible de un firewall. No se descarga nada ejecutable: son 22 bytes de
+texto comparados contra una constante. Los instaladores siguen exigiendo HTTPS sin excepción.
 
-Causa, visible en el log: la ruta **cambió entre corridas**, de
-`Microsoft.DesktopAppInstaller_1.29.280.0` (línea 6) a `_1.29.290.0` (línea 26). winget se
-autoactualizó y la carpeta del paquete viejo dejó de existir. La ruta se resuelve una vez por tanda y
-después se usa una que ya no es válida.
+**Decisión tomada y descartada:** no se bloquea «Reparar errores» sin internet. Era el uso obvio de
+`FixBlockReason.NoNetwork` y está mal — `DISM /ScanHealth` es de solo lectura y `SystemFileRepairFix`
+lo corre primero. El enum sigue sin usarse, a propósito.
 
-El mensaje también revela que el directorio de trabajo heredado era `C:\Users\Andres\Downloads`, que
-no se está fijando explícitamente.
+### v0.8.0 — lo que se corrigió de paso
 
-**F4 · VLC devolvió 1 justo después de VCRedist.** (P1)
+- **«Fuentes de winget reparadas» era mentira.** Se declaraba mirando el código de salida de
+  `winget source reset`. Ahora la única prueba admitida es que **el reintento funcione**.
+- **Un fallo de catálogo confirmado no se repite paquete por paquete.** Eran tres párrafos idénticos
+  recomendando la reparación que ya había fallado. Los de descarga directa sí se siguen intentando.
+- **El log no tenía ni una palabra de winget** — solo se registraba `stderr`, y winget escribe en
+  `stdout`. Ahora las dos, con `Core/Processes/ProcessOutput.cs` colapsando la animación de progreso
+  (cientos de cuadros del mismo renglón reescrito con `\r`) sin tocar el texto real.
+- **Una constante equivocada ya no puede producir un éxito falso.** Ver abajo.
+- **`FileVersion`/`AssemblyVersion` estaban clavados en `0.6.0.0`** con `Version` en 0.8.0.
 
-Líneas 13-16: VLC arrancó a las 11:58:59, exactamente cuando VCRedist terminó, y falló con código 1.
-El stderr vino vacío y stdout mostraba *«Encontrado VLC media player [VideoLAN.VLC] Versión 3.0.23»* —
-o sea, winget encontró el paquete y el instalador falló.
+### La trampa de las constantes de winget, y cómo quedó desactivada
 
-Sospecha principal: contención del mutex `_MSIExecute` de Windows Installer. La instalación es serial,
-pero «serial» no alcanza: el instalador anterior puede seguir finalizando cuando arranca el siguiente.
+`WingetErrorCodes` transcribe códigos a mano. **Dos ya estuvieron mal una vez** y produjeron fallos
+falsos en la primera prueba real. Tres siguen sin verificar y están marcadas `SIN VERIFICAR` una por
+una, con el efecto concreto si están mal:
 
-### Defectos secundarios que el log también expone
-
-**F5 · Detección de corrupción de DISM dependiente del idioma.** (P2) Líneas 37-38: dos llamadas a
-DISM, o sea que `RestoreHealth` corrió aunque `ScanHealth` probablemente no encontró daño. La detección
-compara texto en inglés contra un Windows en español. Cuesta ~4 minutos por corrida. Se arregla
-pasando `/English` a DISM, que fuerza salida determinista.
-
-**F6 · `net stop bits` código 2 tratado como advertencia.** (P2) Línea 45: *«El servicio BITS no se ha
-iniciado»*. Es el caso normal —el servicio ya estaba detenido— y ensucia el log.
-
-**F7 · `netsh int ip reset` devuelve 1.** (P2) Líneas 57, 82. Habitualmente benigno, pero hoy se
-registra como advertencia sin distinguirlo de un fallo real.
-
-**F8 · Sin resultado de RustDesk.** (P2) El log termina en la línea 96 con el instalador lanzado y
-nunca registra el desenlace. Hay que confirmar que `--silent-install` es el flag correcto de RustDesk
-1.4.9 y capturar el resultado.
-
-**F9 · Reparación repetida sin memoria.** (P2) Se corrió el mismo ciclo DISM+sfc dos veces (13:06 y
-13:18): veinte minutos repetidos. La app debería avisar que ya se hizo hace poco.
-
-**F10 · El log no registra qué diagnosticó.** (P1, observabilidad) No hay ninguna línea del
-diagnóstico: `SystemProbe` solo escribe cuando algo falla. No se puede saber si el análisis corrió ni
-qué midió. **Nivel 1 de `docs/PRUEBAS.md` sigue sin verificarse**, y el log no ayuda a saberlo.
-
----
-
-### Los arreglos
-
-Todo lo que sigue es lógica pura o cambios acotados. Nada requiere rediseño.
-
-#### P0 · `RestorePointService` — verificación con espera
-
-`src/EasyFix.Core/Rollback/RestorePointService.cs`
-
-1. **Distinguir «no hay puntos» de «no pude leer».** `HighestSequence()` pasa a devolver `long?`:
-   `null` cuando la consulta falla, `0` cuando genuinamente no hay ninguno. Un `null` en la lectura
-   *previa* no impide continuar; un `null` en la *posterior* no se interpreta como fracaso.
-2. **Esperar a que aparezca.** Después de `CreateRestorePoint`, sondear la secuencia con reintentos
-   —cada 2 s hasta 60 s— y considerarlo creado en cuanto supere el valor previo. La API es asíncrona:
-   esto no es un parche, es cómo hay que consumirla.
-3. **Neutralizar el límite de 24 h.** Es un caso real y frecuente: cualquier equipo que ya tuvo
-   actividad ese día. Poner `SystemRestorePointCreationFrequency = 0` en
-   `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore`.
-
-   Es la única parte del plan que **modifica una configuración del sistema** para que la herramienta
-   funcione, así que va con tres condiciones: se registra en el journal **con su valor anterior**,
-   `Deshacer todo` lo revierte, y queda **configurable en `appsettings.json`**
-   (`Thresholds.DisableRestorePointThrottle`, por defecto `true`) para poder apagarlo sin recompilar.
-
-   El costo real es más espacio en copias de sombra, acotado por el límite que ya tiene configurado
-   Restaurar sistema. El beneficio es que el punto de restauración deja de ser una lotería, que es
-   justamente lo que hizo falta apagar en la primera prueba.
-4. Si después de todo eso no hay punto, recién ahí ofrecer el override que ya existe.
-
-#### P0 · Códigos de winget — tabla real, no constantes adivinadas
-
-`src/EasyFix.Core/Apps/WingetResultParser.cs`, `WingetService.cs`
-
-1. Corregir las dos constantes equivocadas y agregar `UPDATE_NOT_APPLICABLE`.
-2. **`UPDATE_NOT_APPLICABLE` sobre un `install` → `AlreadyInstalled`**, no fallo. Es el arreglo que
-   convierte dos fallos falsos en dos éxitos correctos.
-3. **Cargar la tabla desde el propio winget** con `winget error --output <archivo>` la primera vez que
-   se usa, y cachearla por corrida. Las constantes quedan como respaldo si el comando no existe en esa
-   versión. Así el mapeo lo provee el winget instalado y no mi memoria.
-4. Nuevo `WingetOutcome.NotInCatalog` para `NO_APPLICATIONS_FOUND`, con el mensaje que apunta a
-   revisar el ID en `appsettings.json` — que es lo que efectivamente pasó con RustDesk.
-
-#### P1 · Invocación de winget resistente a la autoactualización
-
-`src/EasyFix.Core/Apps/WingetLocator.cs`, `WingetService.cs`, `Processes/SafeProcessRunner.cs`
-
-1. **Resolver la ruta antes de cada invocación**, no una vez por tanda.
-2. **Reintentar una vez** ante `Win32Exception` con código 5 (acceso denegado) o 2 (no encontrado),
-   re-resolviendo primero. Es exactamente el escenario del log.
-3. **Fijar `WorkingDirectory` explícito** a `System32` en `SafeProcessRunner`. Hoy se hereda de donde
-   se lanzó el `.exe` —`Downloads` en la prueba—, y eso no debería influir en nada.
-
-#### P1 · Espera del mutex de Windows Installer
-
-`src/EasyFix.Core/Apps/WingetService.cs`
-
-Antes de cada instalación, esperar a que el mutex global `_MSIExecute` esté libre, con tope de unos
-minutos. Si sigue tomado, reintentar una vez tras una pausa antes de declarar fallo. Es la explicación
-más probable del código 1 de VLC, y es barato de implementar contra `Mutex.OpenExisting`.
-
-#### P1 · Que el log registre el diagnóstico
-
-`src/EasyFix.Core/Diagnostics/SystemProbe.cs`, `App/ViewModels/MainViewModel.cs`
-
-Loguear en `Information` el `SystemSnapshot` completo y cada hallazgo del reporte. Hoy el log solo
-habla cuando algo falla, así que **no sirve para confirmar que el diagnóstico funcionó** — que es
-justamente lo que falta verificar. Sin esto, cada prueba necesita capturas de pantalla.
-
-#### P2 · El resto
-
-| # | Arreglo | Archivo |
+| Constante | Estado | Si está mal |
 |---|---|---|
-| F5 | Pasar `/English` a DISM y ajustar la detección de corrupción | `Fixes/RepairFixes.cs` |
-| F6 | `net stop` con código 2 = servicio ya detenido = OK | `Fixes/RepairFixes.cs` |
-| F7 | Distinguir el código 1 benigno de `netsh int ip reset` | `Fixes/RepairFixes.cs` |
-| F8 | Verificar el flag silencioso de RustDesk y registrar el desenlace | `appsettings.json`, `Apps/DirectDownloadInstaller.cs` |
-| F9 | Recordar la última reparación y avisar si fue hace menos de 30 min | `Rollback/`, `MainViewModel` |
+| `NoApplicationsFound` `0x8A150014` | **Verificado** en log real | — |
+| `UpdateNotApplicable` `0x8A15002B` | **Verificado** en log real | — |
+| `SourceDataMissing` `0x8A15000F` | **Verificado** en log real | — |
+| `InstallerHashMismatch` `0x8A150011` | **Verificado** en log real | — |
+| `PackageAlreadyInstalled` `0x8A150056` | SIN VERIFICAR | Era la vía al éxito falso. Ya neutralizada |
+| `NoApplicableInstaller` `0x8A150061` | SIN VERIFICAR | Fallo genérico con el código a la vista. Molesto, no peligroso |
+| `FailedToOpenAllSources` `0x8A150019` | SIN VERIFICAR, y sospechoso: podría ser `NOT_ALL_QUERIES_FOUND_SINGLE` | Se intenta reparar fuentes cuando no hacía falta. El reset es idempotente |
 
-### Verificación
+**Por qué ya no es grave.** Un código sin reconocer cae en `Failed` con su valor en crudo, así que el
+peor caso es un fallo honesto y diagnosticable. La **única** vía por la que un código de error se
+volvía un *éxito* era «ya estaba instalado», porque cuenta como paquete disponible. Ahora ese
+desenlace exige confirmación independiente (`WingetErrorCodes.ConfirmsAlreadyInstalled`): la tabla del
+propio winget del equipo —por el **nombre** del símbolo, que sí es estable entre versiones— o que
+winget lo diga por texto, en español o en inglés. Sin confirmación se reporta el fallo explicando que
+podría estar instalado y no se pudo confirmar.
 
-**Tests nuevos, todos sin Windows** (la lógica está aislada a propósito):
+**Para cerrarlo hace falta un dato de Windows:** la salida de `winget error --output <archivo>` de un
+equipo con **winget 1.6 o superior**. En winget 1.24 y anteriores ese comando devuelve
+`INVALID_CL_ARGUMENTS` — es lo que pasó en el equipo del 2026-08-29, y por eso ahí las constantes
+fueron la única fuente. Está pedido en `docs/PRUEBAS.md`, Nivel 1.
 
-- `RestorePointService`: no se puede testear sin WMI, pero **sí la política**. Se extrae la decisión
-  «¿está creado?» a una función pura sobre `(secuenciaAntes, secuenciaDespués, intentos)` y se testea:
-  aparece al tercer intento → creado · nunca aparece → no creado · lectura previa fallida → no
-  bloquea · lectura posterior fallida → no cuenta como fracaso.
-- `WingetResultParser`: los tres códigos reales del log — `0x8A15002B` → `AlreadyInstalled`,
-  `0x8A150014` → `NotInCatalog`, `1` con stdout de VLC → fallo del instalador. Y que la tabla cargada
-  desde `winget error` gane sobre las constantes de respaldo.
-- `WingetService`: la ruta se re-resuelve por paquete · un `Win32Exception(5)` dispara un reintento ·
-  el mutex tomado espera y no falla de inmediato.
-- `RepairFixes`: salida de DISM en inglés con y sin corrupción · `net stop` código 2 = OK.
+### Sospechas abiertas, sin verificar y sin tocar
 
-**En Windows, con este orden:**
+Salieron del análisis multiagente de los logs del 2026-08-29. Los refutadores de estas dos **no
+llegaron a correr** (límite de sesión), así que son hallazgos sin verificación adversarial: hay que
+comprobarlos antes de cambiar código.
 
-1. **Nivel 1 de `docs/PRUEBAS.md` primero** — es lo único que sigue sin verificarse, y ahora el log
-   va a mostrar qué midió. Confirmar que el resumen del equipo dice bien modelo, RAM y tipo de disco.
-2. Reintentar la instalación de los 10 programas en un equipo **donde ya estén algunos**: es el caso
-   que producía los fallos falsos. Esperado: `Ya estaba` en verde, no `NotFound` en rojo.
-3. Reparar **sin** marcar el override, para confirmar que ahora el punto de restauración se crea y se
-   verifica. Comprobarlo en `rstrui.exe`.
-4. `Deshacer todo`, y verificar que revierte también el cambio de
-   `SystemRestorePointCreationFrequency`.
+1. **`disco.salud = Healthy` con la sonda de disco en timeout.** El log dice `disco.tipo = Unknown` y
+   `disk.physical` en timeout, pero `disco.salud = Healthy`. ¿De dónde sale ese `Healthy`? Si es el
+   valor por defecto del enum, el reporte está afirmando salud que no midió — el mismo pecado que
+   v0.8.0 arregló en otro lado. Mirar `ProbeSmart` vs `ProbePhysicalDisk` y el default de
+   `DiskHealth`.
+2. **«0 hallazgos de hardware» con la sonda de pantallazos en timeout.** Mismo patrón: concluir
+   ausencia de problemas a partir de una comprobación que no terminó.
+3. **`bateria.desgaste = no medido` no es una medición fallida** — según el análisis, **no existe
+   ninguna sonda de batería** en el código. Si es así, el campo miente por omisión: dice «no medido»
+   como si se hubiera intentado.
+4. **Bools y contadores sin estado «no medido»** — `IsDomainJoined`, `BitLockerActive`, `HasPrinters`,
+   `HasBluetoothAdapter`, `ActiveAntivirusCount` son `bool`/`int`, no `bool?`/`int?`. Un timeout se
+   reporta como `False`/`0`, que es una afirmación. `Network` se agregó como `ConnectivityStatus?`
+   justamente para no repetirlo.
+5. **`disco.tipo = Unknown` se consume como si fuera un dato** — `IsSsd` devuelve `false` para
+   `Unknown`, así que un disco no identificado se trata como «no es SSD». Suprime la recomendación más
+   valiosa de la herramienta (cambiar a SSD) y afecta la condición de `SysMain`.
+6. **`SlowProbes` incompleto** — `disk.smart`, `boot`, `bitlocker` y `antivirus` siguen con 5 s. En el
+   Pentium G2020, `disk.physical` y `crash` no alcanzaban con 5 s; es razonable que estas tampoco.
+
+Los puntos 1 a 5 son todos la misma clase de defecto: **el snapshot no distingue «no medido» de un
+valor**. Vale considerarlos como un solo trabajo.
+
+### Lo que nunca se ejecutó en Windows
+
+Es la deuda real del proyecto. Todo lo de abajo compila, tiene tests y **nunca corrió en el sistema
+operativo al que apunta**:
+
+- **Todo v0.7.0 y v0.8.0.** El congelamiento de la ventana y la falta de red se diagnosticaron
+  leyendo código y logs, no reproduciéndolos.
+- **Los cuatro fixes de rendimiento** y `StartupEntryReader`.
+- **El botón «Deshacer todo»** y los `IUndoHandler` concretos.
+- **`BitLockerService`** — ningún equipo de prueba tenía BitLocker. Es el camino al daño
+  irreversible más grave que la app podría causar, así que es el que más falta verificar.
+- **El análisis de pantallazos** contra un equipo que efectivamente los tenga.
+- **`ScheduleMemoryTestFix` y `RemoveCorrelatedUpdateFix`** — nunca se ofrecieron.
+- **Chrome y RustDesk por MSI.**
+- **`tools/spike/Verify-WindowsApis.ps1`** — escrito, nunca corrido. Sigue siendo la vía más rápida
+  para validar de una todos los contratos de WMI. Es solo lectura.
+
+`docs/PRUEBAS.md` tiene los niveles ordenados por riesgo. **El Nivel 1.5 (sin internet) es el más
+valioso ahora**: es solo lectura, se hace en cualquier equipo desenchufando el cable, y reproduce a
+propósito el fallo del 2026-08-29. Su chequeo clave es negativo — en el log **no** puede aparecer
+ninguna línea de `winget.exe`.
+
+### Lo que falta implementar
+
+En orden de valor, no de dependencia:
+
+1. **Distinguir «no medido» de un valor en todo el snapshot** — los puntos 1 a 5 de las sospechas
+   abiertas. Es la deuda de diseño que queda del mismo problema que produjo las últimas tres
+   versiones.
+2. **La lista de verificación antes/después** — las ~12 condiciones del objetivo «estado estándar»,
+   evaluadas dos veces y mostradas en dos columnas. Es el entregable que convierte «te lo dejé sin
+   errores» en algo verificable. Ver «Cómo se vuelve medible», más abajo.
+3. **Medición antes/después del arranque** — el baseline ya se lee; falta guardarlo en el journal y
+   comparar tras el reinicio contra el evento 100.
+4. **Tier B con casillas** — servicios, bloatware, apps UWP, efectos visuales.
+5. **Modo «Restablecer a estado estándar»** — red, Windows Update, energía, asociaciones, Store,
+   políticas locales.
+6. **Wizard de perfil**, los tres niveles.
+7. **Reanudación tras reinicio** (`RunOnce --resume`).
+8. **Bootstrap de winget** si falta (Win10 anterior a 1809).
+
+### Errores corregidos que conviene no repetir
+
+- **WPF sí compila fuera de Windows** con `EnableWindowsTargeting=true`. Una versión anterior de este
+  plan afirmaba lo contrario y bloqueaba el desarrollo de la UI detrás de una VM innecesaria.
+- **Los contadores de rendimiento están localizados.** `\Memory\Committed Bytes` no existe en un
+  Windows en español. Se usan las clases `Win32_PerfFormattedData_*`, cuyas propiedades tienen el
+  mismo nombre en cualquier idioma. Lo mismo con DISM: se le pasa `/English`.
+- **`Path.GetInvalidFileNameChars()` depende del sistema anfitrión.** En Unix no incluye `:`, así que
+  un `runId` con timestamp ISO habría generado un nombre inválido al llegar a Windows.
+- **`OperationCanceledException` también es `Exception`.** Un `catch` general se comía la cancelación
+  del usuario y devolvía un reporte falso lleno de «no se pudo determinar».
+- **winget se instala por usuario.** Al elevar, `%LOCALAPPDATA%` puede resolver al perfil del
+  administrador, donde el alias de `winget.exe` no existe. Ver `WingetLocator`.
+- **winget se autoactualiza a mitad de una tanda.** La carpeta de su paquete cambia de nombre y la
+  ruta cacheada deja de existir. Se re-resuelve antes de cada paquete.
+- **`SRSetRestorePoint` es asíncrona.** Enumerar inmediatamente después es una carrera que casi
+  siempre se pierde. Se sondea con reintentos y se verifica por **fecha**, no por secuencia.
+- **Un test double puede mentir.** `InMemoryFileTree` pisaba el atributo `ReparsePoint` del directorio
+  padre, y el test estrella del junction estaba probando otra cosa mientras pasaba en verde.
+- **Trabajo síncrono + `Task.FromResult` congela la UI.** Si el método nunca espera nada, el cuerpo
+  entero corre en el hilo que llamó. `X509Chain.Build` por binario es lo más lento de la app.
+- **Un cero puede ser un contador sin inicializar.** `disco.latencia = 0 ms` no es un disco
+  infinitamente rápido.
+- **Registrar solo `stderr` no alcanza.** winget, DISM y sfc escriben sus diagnósticos en `stdout`.
 
 ---
 
@@ -239,82 +218,51 @@ un click con undo total · portable .exe (sin instalador, sin firma de código, 
 
 ---
 
-## Estado actual
-> Última actualización: después de la primera prueba real de v0.3.0 (log del 2026-08-25).
-> Rama `main`, árbol limpio, tag `v0.3.0`. **282 tests pasan, 2 se omiten** (los que exigen Windows).
-> `dotnet build` limpio en los tres proyectos, incluido el de WPF.
->
-> Los arreglos pendientes están en **v0.4.0 — Plan activo**, arriba.
+## Componentes y dónde viven
 
-### Lo que ya funciona y está verificado
+Conteo de tests por área, para saber qué está respaldado y qué no. **432 en total, 2 omitidos.**
 
-| Componente | Dónde | Tests |
+| Componente | Dónde | Respaldo |
 |---|---|---|
-| Clasificador de 3 capas | `Core/Classification/StartupClassifier.cs` | 20 |
-| Journal JSONL + `UndoEngine` | `Core/Rollback/` | 25 |
-| Limpiador junction-safe de temporales | `Core/Cleaning/JunctionSafeCleaner.cs` | 15, uno con symlink real |
-| Motor de diagnóstico (paralelo, timeout por chequeo) | `Core/Diagnostics/DiagnosticEngine.cs` | 13 |
-| Motor de recomendación de hardware | `Core/Recommendations/HardwareAdvisor.cs` | 26 |
-| Condiciones de servicio (el caso `SysMain` en HDD) | `Core/Fixes/ServiceConditionEvaluator.cs` | 15 |
-| Módulo winget: instalar programas | `Core/Apps/WingetService.cs` | 17 |
-| Runner de procesos endurecido | `Core/Processes/SafeProcessRunner.cs` | 5 |
-| `PathGuard`, parser de certificados, IDs de winget, loader de config | `Core/Safety/`, `Core/Apps/`, `Core/Configuration/` | resto |
-| UI en WPF: inicio, analizando, reporte, instalar | `App/Views/MainWindow.xaml` | compila; **sin ejecutar** |
+| Clasificador de 3 capas | `Core/Classification/StartupClassifier.cs` | 20 tests |
+| Journal JSONL + `UndoEngine` + handlers | `Core/Rollback/` | 25 tests. Handlers **sin correr en Windows** |
+| Limpiador junction-safe de temporales | `Core/Cleaning/JunctionSafeCleaner.cs` | 15 tests, uno con symlink real |
+| Motor de diagnóstico (paralelo, timeout por sonda) | `Core/Diagnostics/DiagnosticEngine.cs` | 13 tests |
+| Motor de recomendación de hardware | `Core/Recommendations/HardwareAdvisor.cs` | 26 tests |
+| Condiciones de servicio (`SysMain` en HDD) | `Core/Fixes/ServiceConditionEvaluator.cs` | 15 tests |
+| Módulo winget | `Core/Apps/WingetService.cs`, `WingetResultParser.cs`, `WingetErrorCodes.cs` | 17 + los de códigos. **3 constantes sin verificar** |
+| Descarga directa (Chrome MSI, RustDesk de GitHub) | `Core/Apps/DirectDownloadInstaller.cs` | **Sin correr en Windows** |
+| **Detección de red** | `Core/Network/` | 30 tests. **Sin correr en Windows** |
+| Runner de procesos endurecido + limpieza de salida | `Core/Processes/` | 5 + 9 tests |
+| Punto de restauración y su política | `Core/Rollback/RestorePointPolicy.cs`, `RestorePointService.cs` | La política es pura y testeada; el servicio corrió en un equipo real |
+| Política de seguridad de los fixes (4 compuertas) | `Core/Fixes/FixRunner.cs` | Toda la política de seguridad en un solo archivo |
+| Fixes de rendimiento | `Core/Fixes/PerformanceFixes.cs`, `StartupDisableFix.cs` | **Sin correr en Windows** |
+| Fixes de reparación | `Core/Fixes/RepairFixes.cs` | DISM/SFC/chkdsk/red/WU corrieron en un equipo real |
+| Análisis de pantallazos azules | `Core/Diagnostics/CrashAnalysis.cs` | Catálogo de 23 bugchecks. **Sin equipo que tenga pantallazos** |
+| Cálculo del progreso | `Core/Fixes/IFix.cs`, `Core/Diagnostics/SystemProbe.cs` | 17 tests: monotonía, rango acotado, total en cero |
+| `PathGuard`, certificados, IDs de winget, config | `Core/Safety/`, `Core/Apps/`, `Core/Configuration/` | el resto |
+| UI en WPF: 7 pantallas | `App/Views/MainWindow.xaml` | compila; **ejecutada solo hasta v0.6.0** |
 
-### Verificado en un equipo real (log del 2026-08-25)
+**La única clase que habla con Windows es `Core/Diagnostics/SystemProbe.cs`** (más los servicios de
+punto de restauración, BitLocker y el runner de procesos). Todo lo demás es lógica pura sobre el
+snapshot, y por eso se testea desde macOS. Esa decisión es la que permite que el proyecto avance sin
+una VM; ver «La decisión de arquitectura más importante».
 
-- **`WingetLocator`** encuentra winget bajo `Program Files\WindowsApps`, incluso elevado. La hipótesis
-  de que el alias por usuario fallaría al elevar era correcta y la solución funciona.
+### Verificado en un equipo real
+
+Del log del 2026-08-25 (v0.5.0) y los del 2026-08-27 y 2026-08-29:
+
+- **`WingetLocator`** encuentra winget bajo `Program Files\WindowsApps`, incluso elevado.
 - **Instalación con winget**: 7-Zip y VCRedist instalados con código 0.
 - **Descarga directa desde GitHub**: resolvió RustDesk 1.4.9 y bajó el asset correcto.
 - **`SystemFileRepairFix`**: DISM `/ScanHealth` → `/RestoreHealth` → `sfc` corrió completo y reparó.
 - **`DiskCheckFix`, `WindowsUpdateResetFix`, `NetworkStackResetFix`**: aplicados.
-- **El override del punto de restauración** funciona y queda registrado.
+- **El punto de restauración** se crea (secuencia 210 → 213 → 214 entre corridas).
 - **`RustDesk.RustDesk` ya NO existe en winget** — confirmado por `NO_APPLICATIONS_FOUND`. La decisión
   de bajarlo de GitHub era necesaria, no precautoria.
-
-### Todavía NO verificado
-
-- **`Core/Diagnostics/SystemProbe.cs`** — el log no tiene ninguna línea del diagnóstico, así que no se
-  sabe si corrió ni qué midió. Es el defecto **F10** del plan activo: hasta que el log registre el
-  snapshot, cada prueba necesita capturas. **Es lo primero a verificar.**
-- **`RestorePointService`** — se ejecuta, pero su verificación es defectuosa (**F1**).
-- **`BitLockerService`** — el equipo de prueba no tenía BitLocker.
-- **El análisis de pantallazos** contra un equipo que efectivamente los tenga.
-- **`ScheduleMemoryTestFix` y `RemoveCorrelatedUpdateFix`** — nunca se ofrecieron, porque el equipo no
-  tenía pantallazos que los justificaran.
-- **`tools/spike/Verify-WindowsApis.ps1`** — escrito, nunca corrido. Sigue siendo la vía más rápida
-  para validar de una todos los contratos de WMI. Es solo lectura.
-
-### Lo que falta implementar
-
-1. **Los fixes Tier A** y el botón «Mejorar rendimiento» de verdad. Bloqueados por el punto 2.
-2. **`RestorePointService`** — `SystemRestore.CreateRestorePoint` en `root\default`. Es el
-   prerrequisito de todo lo demás: sin punto de restauración verificado, la app no toca nada.
-3. **Los `IUndoHandler`** concretos (registro, servicios, plan de energía, BitLocker). `UndoEngine` ya
-   existe y está testeado; le faltan los handlers que hacen el trabajo.
-4. **«Reparar errores»**: DISM, SFC, chkdsk, resets de red y de Windows Update, más la reanudación
-   por `RunOnce --resume` tras el reinicio.
-5. **Wizard de perfil**, los tres niveles.
-6. **Medición antes/después** del arranque: el baseline ya se lee, falta guardarlo en el journal y
-   compararlo tras el reinicio.
-
-### Errores corregidos que conviene no repetir
-
-- **WPF sí compila fuera de Windows** con `EnableWindowsTargeting=true`. Una versión anterior de este
-  plan afirmaba lo contrario y bloqueaba el desarrollo de la UI detrás de una VM innecesaria.
-- **Los contadores de rendimiento están localizados.** `\Memory\Committed Bytes` no existe en un
-  Windows en español. Se usan las clases `Win32_PerfFormattedData_*`, cuyas propiedades tienen el
-  mismo nombre en cualquier idioma.
-- **`Path.GetInvalidFileNameChars()` depende del sistema anfitrión.** En Unix no incluye `:`, así que
-  un `runId` con timestamp ISO habría generado un nombre inválido al llegar a Windows. El set de
-  Windows va explícito.
-- **`OperationCanceledException` también es `Exception`.** Un `catch` general se comía la cancelación
-  del usuario y devolvía un reporte falso lleno de «no se pudo determinar».
-- **winget se instala por usuario.** Al elevar, `%LOCALAPPDATA%` puede resolver al perfil del
-  administrador, donde el alias de `winget.exe` no existe. Ver `WingetLocator`.
-- **Un test double puede mentir.** `InMemoryFileTree` pisaba el atributo `ReparsePoint` del directorio
-  padre, y el test estrella del junction estaba probando otra cosa mientras pasaba en verde.
+- **El diagnóstico corre y mide** — desde v0.5.0 el log vuelca el snapshot completo, así que se puede
+  auditar qué midió sin capturas de pantalla. Es lo que permitió encontrar los defectos de v0.7.0 y
+  v0.8.0 leyendo logs desde macOS.
 
 ---
 
@@ -437,7 +385,7 @@ Event ID 100 de `Microsoft-Windows-Diagnostics-Performance/Operational` → camp
 > compila en macOS y que la VM era un blocker para todo. **Es falso.** Con
 > `<EnableWindowsTargeting>true</EnableWindowsTargeting>` el SDK baja el reference pack de
 > `Microsoft.WindowsDesktop.App` y compila el proyecto WPF, XAML incluido, desde macOS. Comprobado:
-> los tres proyectos compilan y 119 tests pasan en esta Mac (Intel, macOS 12.7.6, .NET SDK 8.0.424
+> los tres proyectos compilan y los 432 tests pasan en esta Mac (Intel, macOS 12.7.6, .NET SDK 8.0.424
 > instalado en `~/.dotnet`).
 >
 > Lo que la VM **sí** sigue habilitando, y no es poco: ejecutar el `.exe`, y probar todo lo que toca
@@ -463,30 +411,41 @@ Sin las VMs el proyecto no se puede verificar. Es el paso 0.
 ## Estructura
 ```
 EasyFix/
+├─ Directory.Build.props       # FUENTE ÚNICA de la versión y la marca. FileVersion deriva de Version
 ├─ EasyFix.sln
-├─ appsettings.json            # umbrales, listas curadas, paquetes de winget
+├─ appsettings.json            # umbrales, listas curadas, paquetes de winget, comprobación de red
+├─ CHANGELOG.md                # una entrada por versión, con qué se probó y qué NO
 ├─ src/
 │  ├─ EasyFix.App/             # WPF. Ventana, XAML, ViewModels. Cero lógica de negocio.
 │  │  ├─ App.xaml(.cs)         # DI, Serilog, carga de configuración, handler global de excepciones
-│  │  ├─ Views/MainWindow.xaml # las cuatro pantallas, por Visibility según CurrentScreen
+│  │  ├─ Views/MainWindow.xaml # las 7 pantallas, por Visibility según CurrentScreen
 │  │  ├─ ViewModels/           # MainViewModel, AppChoice, Converters
-│  │  ├─ Styles/Theme.xaml     # tokens de color y estilos
+│  │  ├─ Styles/Theme.xaml     # tokens de color, estilos, ProgressBarStyle
 │  │  └─ app.manifest          # requireAdministrator + PerMonitorV2
 │  └─ EasyFix.Core/            # Toda la lógica. Sin referencia a WPF (test de arquitectura).
 │     ├─ Abstractions/         # IFileTree, IProcessRunner
-│     ├─ Apps/                 # WingetService, WingetLocator, WingetResultParser, WingetPackageId
+│     ├─ Apps/                 # WingetService, WingetLocator, WingetResultParser, WingetErrorCodes,
+│     │                        #   WingetPackageId, DirectDownloadInstaller
 │     ├─ Classification/       # StartupClassifier, StartupCandidate, CertificateSubject
 │     ├─ Cleaning/             # JunctionSafeCleaner, PhysicalFileTree
 │     ├─ Configuration/        # EasyFixOptions, OptionsLoader
-│     ├─ Diagnostics/          # SystemProbe, SystemSnapshot, SoftwareFindings, DiagnosticEngine
-│     ├─ Fixes/                # ServiceConditionEvaluator
-│     ├─ Processes/            # SafeProcessRunner
+│     ├─ Diagnostics/          # SystemProbe (LA ÚNICA que habla con Windows), SystemSnapshot,
+│     │                        #   SoftwareFindings, DiagnosticEngine, CrashAnalysis
+│     ├─ Fixes/                # IFix, FixRunner (toda la política de seguridad), PerformanceFixes,
+│     │                        #   RepairFixes, StartupDisableFix, ServiceConditionEvaluator
+│     ├─ Network/              # Connectivity, ConnectivityCheck  ← v0.8.0
+│     ├─ Processes/            # SafeProcessRunner, ProcessOutput
 │     ├─ Recommendations/      # HardwareAdvisor
-│     ├─ Rollback/             # RunJournal, JournalReader, UndoEngine, FileJournalSink
+│     ├─ Rollback/             # RunJournal, JournalReader, UndoEngine, FileJournalSink,
+│     │                        #   RestorePointService, RestorePointPolicy, los IUndoHandler
 │     └─ Safety/               # PathGuard
-├─ tests/EasyFix.Core.Tests/   # xUnit + fakes propios
-│  └─ Fakes/                   # InMemoryFileTree, TestDoubles, WindowsOnlyFact, TestPaths
-├─ tools/spike/                # Verify-WindowsApis.ps1
+├─ tests/EasyFix.Core.Tests/   # xUnit + fakes propios. 432 tests, 2 omitidos
+│  └─ Fakes/                   # InMemoryFileTree, TestDoubles, WindowsOnlyFact, TestPaths,
+│                              #   FakeConnectivityCheck
+├─ docs/PLAN.md                # este archivo
+├─ docs/PRUEBAS.md             # niveles de prueba ordenados por riesgo. Nivel 1.5 = sin internet
+├─ tools/spike/                # Verify-WindowsApis.ps1 (nunca corrido)
+├─ tools/Diagnose-BlueScreen.ps1
 └─ scripts/bootstrap.ps1       # recrea el .sln y baja autorunsc
 ```
 
@@ -604,11 +563,23 @@ Regla dura: **escribir en el journal antes de actuar.** Si la app muere entre el
 registro, queda un cambio invisible para el undo — exactamente el caso que arruina el equipo de un
 cliente.
 
-### `IFix`: todavía no existe
+### `IFix`: el contrato de un arreglo
 
-El plan definía una interfaz `IFix` con `CanApplyAsync` / `ApplyAsync`. No se implementó porque los
-fixes están bloqueados por `RestorePointService`. Cuando se escriba, el contrato sigue siendo válido,
-y `ApplyAsync` recibe el `RunJournal` para poder cumplir la regla de arriba.
+`Core/Fixes/IFix.cs`. Cada fix declara qué es capaz de hacer y qué riesgo tiene, y `FixRunner` decide
+si lo deja correr. Lo que hay que saber al escribir uno nuevo:
+
+- **`CanApplyAsync` se evalúa antes que nada** y devuelve un `FixApplicability` con su
+  `FixBlockReason`. Un fix que no aplica no es un error: es información para el reporte.
+- **`TouchesBootOrDisk`** es lo que hace que `FixRunner` lo bloquee sin confirmación de la clave de
+  BitLocker. Marcarlo mal es el camino al daño irreversible.
+- **`IsReversible = false`** obliga a decirlo en pantalla. Borrar temporales es el único de esta
+  categoría.
+- **`ApplyAsync` recibe el `RunJournal`** para poder escribir **antes** de tocar el sistema.
+- **Todo el trabajo va a un hilo del pool.** Un `ApplyAsync` que hace trabajo síncrono y devuelve
+  `Task.FromResult` corre en el hilo de la interfaz y congela la ventana. Pasó de verdad en v0.6.0 con
+  dos fixes; se arregló en v0.7.0.
+- **`FixProgress`** reporta paso, total y fracción. El porcentaje **nunca retrocede**, y un fix
+  bloqueado igual avanza el contador: una barra quieta se lee como una aplicación colgada.
 
 ## Catálogo de diagnóstico (la investigación)
 Todo con API real, no shell-out cuando se puede evitar.
@@ -996,32 +967,43 @@ daría «2 s», y un número absurdo quema la credibilidad del reporte entero.
 | 5 | Motor de diagnóstico | Chequeo colgado → timeout y el reporte sale; chequeo que revienta → el resto sigue; orden estable; tope de concurrencia respetado |
 | 6 | Motor de recomendación | Equipo sano → lista vacía; dato en `null` → no recomienda; piso de 15 s en la estimación del SSD |
 | 7 | Condiciones de servicio | `SysMain` en HDD no se ofrece; condición desconocida no se ofrece; toda condición del `appsettings.json` real está implementada |
-| 8 | `SystemProbe` + UI de diagnóstico | **Sin verificar** — compila y publica |
+| 8 | `SystemProbe` + UI de diagnóstico | Corrió en tres equipos reales; el log vuelca el snapshot completo |
 | 9 | Módulo winget + RustDesk | Argumentos exactos, serialización real, un fallo no corta la tanda, ID con `&&` rechazado |
+| 10 | `RestorePointService` + política verificable | La política es pura y testeada; el punto se crea en equipo real (secuencia 210 → 213 → 214) |
+| 11 | `IUndoHandler` concretos + botón «Deshacer todo» | Se aplican y se deshacen en test; **sin correr en Windows** |
+| 12 | Fixes de rendimiento + botón «Mejorar rendimiento» | 50 tests entre los tres componentes; **sin correr en Windows** |
+| 13 | Fixes de reparación + botón «Reparar errores» | DISM/SFC/chkdsk/red/WU corrieron completos en equipo real |
+| 14 | Análisis de pantallazos azules | Catálogo de 23 bugchecks mapeados a primer sospechoso; **sin equipo que los tenga** |
+| 15 | Barra de progreso determinada en las 4 operaciones largas | 17 tests: monotonía, rango acotado, total en cero |
+| 16 | **Detección de red y compuerta antes de instalar** | 30 tests; el runner y el descargador revientan si se los invoca sin red |
 
 ### Pendiente, en orden de dependencia
 
-| # | Entrega | Bloqueado por | Tests que la cierran |
-|---|---|---|---|
-| 10 | **Correr el spike en Windows** y corregir los contratos que estén mal | acceso a un PC con Windows | Las dos salidas (Win10 y Win11) coinciden con lo documentado |
-| 11 | `RestorePointService` | 10 | Sin System Restore habilitado → **aborta**; punto creado y verificado antes del primer cambio; throttle de 24 h contemplado |
-| 12 | Los `IUndoHandler` concretos | 11 | Cada uno: se aplica, se deshace, el estado original vuelve exacto |
-| 13 | Fixes Tier A + «Mejorar rendimiento» de verdad | 11, 12 | Ciclo de snapshot en VM sucia. Junction en `%TEMP%` no se sigue. Ruta fuera de la raíz → excepción |
-| 14 | Medición antes/después | 13 | Baseline en el journal; tras reiniciar, el delta contra el evento 100 coincide con el Visor de eventos |
-| 15 | Lista Tier B con casillas | 12 | Servicio desactivado y restaurado con su tipo de arranque exacto; modo dominio → bloqueado |
-| 16 | Escaneo profundo + «Reparar errores» + reanudación tras reboot | 11 | Corrupción inducida y reparada; ciclo `RunOnce --resume`; cancelar a mitad de DISM deja el sistema consistente |
-| 17 | Wizard de perfil | 16 | Perfil temporal inducido: nivel 1 lo resuelve. `robocopy` **no** copia `NTUSER.DAT` ni `AppData\Local\Temp` |
-| 18 | Bootstrap de winget si falta | — | Win10 sin winget: se instala el App Installer y después el paquete |
+**Lo pendiente ya no está bloqueado por código, sino por verificación.** El orden de abajo es por
+valor, no por dependencia; ver también «Lo que falta implementar» en el plan activo.
 
-**El orden importa por una razón:** nada que modifique el sistema se implementa antes de
-`RestorePointService`. Sin punto de restauración verificado la app no toca nada, así que un fix sin
-esa pieza no se podría ni ejecutar.
+| # | Entrega | Qué la cierra |
+|---|---|---|
+| 17 | **Probar v0.7.0 y v0.8.0 en Windows** — `docs/PRUEBAS.md`, Nivel 1.5 primero | Sin red: el log no tiene ni una línea de `winget.exe`. Con red: el aviso desaparece |
+| 18 | **«No medido» ≠ un valor** en todo el snapshot | Un timeout de `bitlocker` reporta «no determinado», no `False`. `Unknown` en el tipo de disco no suprime la recomendación de SSD |
+| 19 | **Lista de verificación antes/después** | Las ~12 condiciones evaluadas dos veces, en dos columnas. Lo que no se pudo evaluar sale «no determinado», nunca verde |
+| 20 | Medición antes/después del arranque | Baseline en el journal; tras reiniciar, el delta contra el evento 100 coincide con el Visor de eventos |
+| 21 | Tier B con casillas | Servicio desactivado y restaurado con su tipo de arranque exacto; modo dominio → bloqueado |
+| 22 | Modo «Restablecer a estado estándar» | Red, Windows Update, energía, asociaciones, Store, políticas locales |
+| 23 | Wizard de perfil | Perfil temporal inducido: nivel 1 lo resuelve. `robocopy` **no** copia `NTUSER.DAT` ni `AppData\Local\Temp` |
+| 24 | Reanudación tras reinicio | Ciclo `RunOnce --resume`; cancelar a mitad de DISM deja el sistema consistente |
+| 25 | Bootstrap de winget si falta | Win10 sin winget: se instala el App Installer y después el paquete |
+| 26 | Recomendador del reset de Windows | Criterios explícitos, medidos |
+
+**La regla de orden que sigue vigente:** nada que modifique el sistema corre sin punto de restauración
+verificado. `FixRunner` lo impone en código, con cuatro compuertas evaluadas en orden — disco
+fallando, punto de restauración, BitLocker sin confirmar, dominio.
 
 ## Verificación
 ### Lo que corre hoy, en cualquier sistema
 
 ```bash
-dotnet test                                        # 210 pasan, 2 se omiten fuera de Windows
+dotnet test                                        # 432 pasan, 2 se omiten fuera de Windows
 dotnet test --filter 'Category!=RequiresWindows'   # solo lo portable
 dotnet test --filter 'Category!=Integration'       # solo lógica pura, sin tocar el disco
 ```
@@ -1089,7 +1071,7 @@ export PATH="$HOME/.dotnet:$PATH"     # no queda persistente: agregalo al perfil
 ```bash
 cd ~/Proyectos/EasyFix
 dotnet build      # los tres proyectos, incluido el de WPF
-dotnet test       # 210 pasan, 2 se omiten
+dotnet test       # 432 pasan, 2 se omiten
 ```
 
 ### Generar el `.exe` portable
