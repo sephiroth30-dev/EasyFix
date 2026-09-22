@@ -1,0 +1,60 @@
+name: Release
+
+# Se dispara al empujar un tag vX.Y.Z. El flujo para publicar una versión es:
+#   1. Subir <Version> en Directory.Build.props y anotar la versión en CHANGELOG.md
+#   2. git commit, git tag vX.Y.Z, git push --follow-tags
+# Este workflow toma esa versión, corre los tests, publica el .exe y crea el Release en GitHub
+# con las notas de esa sección del CHANGELOG. Nada de esto se hace a mano.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Verificar que el tag coincide con Directory.Build.props
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROPS_VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          if [ "$TAG_VERSION" != "$PROPS_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION no coincide con <Version>$PROPS_VERSION</Version> en Directory.Build.props"
+            exit 1
+          fi
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore EasyFix.sln
+
+      - name: Test
+        run: dotnet test EasyFix.sln -c Release --no-restore
+
+      - name: Publish
+        run: >
+          dotnet publish src/EasyFix.App/EasyFix.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -o publish --no-restore
+
+      - name: Extraer notas de la versión desde CHANGELOG.md
+        shell: bash
+        run: ./scripts/extract-changelog.sh "$VERSION" > release-notes.md
+
+      - name: Crear Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: EasyFix v${{ env.VERSION }}
+          body_path: release-notes.md
+          files: publish/EasyFix.exe
