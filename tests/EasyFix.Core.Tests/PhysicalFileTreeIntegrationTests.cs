@@ -196,9 +196,18 @@ public sealed class FileJournalSinkIntegrationTests : IDisposable
         RunJournal journal = RunJournal.Start(new JournalHeader { RunId = "r1" }, sink);
         journal.Append(new JournalAction { FixId = "a", Target = "t", Reversible = true });
 
-        string[] lines = File.ReadAllLines(path);
+        // Con el sink abierto, el lector tiene que conceder FileShare.ReadWrite: File.ReadAllLines
+        // le niega la escritura al sink y en Windows la apertura revienta — lo encontró el primer
+        // run de CI en Windows. En Unix no hay locks obligatorios y el defecto era invisible.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
 
-        Assert.Equal(2, lines.Length); // encabezado + acción, ya en disco
+        Assert.Equal(2, lines.Count); // encabezado + acción, ya en disco
     }
 
     [Fact]

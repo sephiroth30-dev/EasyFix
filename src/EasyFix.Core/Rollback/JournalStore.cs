@@ -72,7 +72,11 @@ public sealed class JournalStore
         {
             try
             {
-                LoadedJournal journal = JournalReader.Parse(System.IO.File.ReadLines(file));
+                // FileShare.ReadWrite: un journal puede estar ABIERTO por el sink de una corrida en
+                // curso (otra instancia, o un resume futuro). En Windows, leerlo con File.ReadLines
+                // —que no concede el share de escritura— tira IOException y la corrida desaparecería
+                // de la lista de deshacer. Lo encontró el primer run de CI en Windows (v0.9.0).
+                LoadedJournal journal = JournalReader.Parse(ReadLinesShared(file));
 
                 if (!journal.IsUsable)
                 {
@@ -136,6 +140,27 @@ public sealed class JournalStore
         {
             _logger.LogWarning(ex, "No se pudo marcar {RunId} como deshecha.", run.RunId);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Lee las líneas concediendo lectura Y escritura a quien ya tenga el archivo abierto.
+    /// </summary>
+    /// <remarks>
+    /// El share mode declara qué pueden hacer LOS DEMÁS: para coexistir con un escritor abierto hace
+    /// falta <see cref="FileShare.ReadWrite"/>; el <c>FileShare.Read</c> de <c>File.ReadLines</c> le
+    /// niega la escritura al sink que ya la tiene y Windows rechaza la apertura. En Unix no hay
+    /// locks obligatorios, por eso 497 tests verdes en macOS no vieron esto.
+    /// </remarks>
+    private static IEnumerable<string> ReadLinesShared(string path)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+
+        while (reader.ReadLine() is { } line)
+        {
+            yield return line;
         }
     }
 }

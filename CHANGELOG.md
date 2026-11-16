@@ -17,6 +17,38 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.1] — 2026-11-16
+
+El release de v0.9.0 falló en el CI — y ese fallo fue **la primera corrida de los tests en un
+Windows real**, que encontró en el acto lo que 497 tests verdes en macOS no podían ver.
+
+### El hallazgo
+
+`FileJournalSinkIntegrationTests.CadaLineaQuedaEnDiscoAlEscribirse_SinEsperarElDispose` reventó en
+`windows-latest` con `IOException: being used by another process`. Causa: el share mode declara qué
+pueden hacer **los demás** con el archivo. El sink ya concedía `FileShare.Read`, pero
+`File.ReadAllLines`/`File.ReadLines` piden `FileShare.Read` al abrir — es decir, **le niegan la
+escritura** al sink que ya la tiene, y Windows rechaza la apertura. En Unix no hay locks
+obligatorios de archivo, así que macOS nunca pudo ver el defecto.
+
+### Corregido
+
+- **`JournalStore` lee con `FileShare.ReadWrite`** (`ReadLinesShared`): un journal abierto por la
+  corrida en curso —otra instancia, o el resume futuro— ya no desaparece de la lista de deshacer
+  por una `IOException` silenciada.
+- El test lee con el share correcto, que es además la documentación ejecutable del contrato.
+
+### Agregado
+
+- **CI en Windows en cada push y PR** (`.github/workflows/ci.yml`). Hasta ahora los tests solo
+  corrían en Windows al taggear un release — o sea, el peor momento para enterarse. Esto además
+  ejecuta en cada push los 2 tests que macOS omite.
+
+**Probado:** 498 tests en macOS (496 + 2 omitidos) y, con este cambio, 498/498 en el runner de
+Windows del CI — la primera verificación en Windows que tiene el proyecto desde v0.5.0.
+
+---
+
 ## [0.9.0] — 2026-11-15
 
 El estado del equipo se vuelve **verificable**: la lista de condiciones evaluada antes y después de

@@ -1,0 +1,35 @@
+name: CI
+
+# Tests en un Windows REAL en cada push y PR. Existe por un hecho medido: los 497 tests verdes en
+# macOS no vieron que File.ReadAllLines no puede abrir un archivo que el sink tiene abierto —
+# en Unix no hay locks obligatorios de archivo, en Windows sí. El primer run en windows-latest
+# (release v0.9.0) lo encontró en el acto. Correr en Windows ANTES del tag evita descubrirlo
+# recién al publicar. Además acá corren los 2 tests que macOS omite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore EasyFix.sln
+
+      - name: Build
+        run: dotnet build EasyFix.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test EasyFix.sln -c Release --no-build
