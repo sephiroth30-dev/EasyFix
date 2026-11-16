@@ -270,6 +270,13 @@
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                     <StackPanel>
+                        <!-- La foto del equipo como condiciones verificables. Después de reparar,
+                             esta misma lista se re-evalúa y se muestra antes → después. -->
+                        <TextBlock Text="ESTADO DEL EQUIPO" Style="{StaticResource SectionHeader}"
+                                   Visibility="{Binding HasChecklistRows, Converter={StaticResource BoolVis}}" />
+                        <ItemsControl ItemsSource="{Binding ChecklistRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}" />
+
                         <TextBlock Text="LO QUE PUEDO ARREGLAR" Style="{StaticResource SectionHeader}"
                                    Visibility="{Binding HasSoftwareRows, Converter={StaticResource BoolVis}}" />
                         <ItemsControl ItemsSource="{Binding SoftwareRows}"
@@ -467,6 +474,17 @@
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                     <StackPanel>
+                        <!-- El entregable: cada condición medida antes y después. Lo que pasó a
+                             verde es la prueba de la mejora; lo que sigue en rojo se muestra con
+                             su motivo, y si es hardware, se dice. -->
+                        <TextBlock Text="ESTADO DEL EQUIPO — ANTES Y DESPUÉS"
+                                   Style="{StaticResource SectionHeader}"
+                                   Visibility="{Binding HasChecklistCompareRows, Converter={StaticResource BoolVis}}" />
+                        <ItemsControl ItemsSource="{Binding ChecklistCompareRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}" />
+
+                        <TextBlock Text="LO QUE SE HIZO" Style="{StaticResource SectionHeader}"
+                                   Visibility="{Binding HasRepairRows, Converter={StaticResource BoolVis}}" />
                         <ItemsControl ItemsSource="{Binding RepairRows}"
                                       ItemTemplate="{StaticResource ReportRowTemplate}" />
 

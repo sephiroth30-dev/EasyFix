@@ -339,7 +339,7 @@ public sealed class DiskOptimizationFix : IFix
     {
         string drive = Path.GetPathRoot(Environment.SystemDirectory)?.TrimEnd('\\') ?? "C:";
 
-        if (context.Snapshot.IsSsd)
+        if (context.Snapshot.IsSsd == true)
         {
             log.Report("Activando TRIM para que el SSD mantenga su velocidad.");
 

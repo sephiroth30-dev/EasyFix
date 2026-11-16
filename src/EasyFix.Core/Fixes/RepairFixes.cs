@@ -393,11 +393,14 @@ public sealed class NetworkStackResetFix : ProcessFix
 
     public override Task<FixApplicability> CanApplyAsync(FixContext context, CancellationToken ct)
     {
-        if (context.Snapshot.IsDomainJoined)
+        if (context.Snapshot.IsDomainJoined != false)
         {
             return Task.FromResult(FixApplicability.No(
                 FixBlockReason.DomainManaged,
-                "En un equipo de dominio esto rompe la conexión con los recursos de la empresa."));
+                context.Snapshot.IsDomainJoined == true
+                    ? "En un equipo de dominio esto rompe la conexión con los recursos de la empresa."
+                    : "No se pudo comprobar si el equipo está en un dominio; si lo estuviera, esto " +
+                      "rompería la conexión con los recursos de la empresa."));
         }
 
         return Task.FromResult(FixApplicability.Yes());

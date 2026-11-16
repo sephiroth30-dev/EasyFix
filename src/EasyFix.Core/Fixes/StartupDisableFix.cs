@@ -86,11 +86,15 @@ public sealed class StartupDisableFix : IFix
     public Task<FixApplicability> CanApplyAsync(FixContext context, CancellationToken ct)
     {
         // En dominio las GPO reescriben las claves Run: el cambio parece funcionar y se deshace solo.
-        if (context.Snapshot.IsDomainJoined)
+        // Dominio sin comprobar bloquea igual — fallar cerrado.
+        if (context.Snapshot.IsDomainJoined != false)
         {
             return Task.FromResult(FixApplicability.No(
                 FixBlockReason.DomainManaged,
-                "El equipo está en un dominio: las políticas reescriben los programas de inicio."));
+                context.Snapshot.IsDomainJoined == true
+                    ? "El equipo está en un dominio: las políticas reescriben los programas de inicio."
+                    : "No se pudo comprobar si el equipo está en un dominio; sin ese dato no se tocan " +
+                      "los programas de inicio."));
         }
 
         return Task.FromResult(FixApplicability.Yes());
@@ -114,6 +118,8 @@ public sealed class StartupDisableFix : IFix
             context.Snapshot.IsDomainJoined,
             context.Snapshot.IsSsd,
             context.Snapshot.TotalRamGb ?? 0);
+        // CanApplyAsync ya bloqueó IsDomainJoined != false, así que acá llega siempre false; el
+        // contexto igual viaja nullable porque el clasificador decide por entrada.
 
         log.Report("Revisando qué programas arrancan con Windows y quién los firma.");
 

@@ -141,6 +141,15 @@ public sealed class SystemProbe
         // son lentos en equipos de gama baja, que son justo los que más se reparan.
         ["disk.physical"] = TimeSpan.FromSeconds(30),
         ["crash"] = TimeSpan.FromSeconds(40),
+
+        // En ese mismo Pentium, disk.physical y crash no alcanzaban con 5 s. Estas cuatro usan las
+        // mismas fuentes (WMI de namespaces secundarios y Event Log), así que es razonable que
+        // tampoco alcancen. Presupuesto SIN VERIFICAR en equipo lento — elegido por analogía.
+        ["disk.smart"] = TimeSpan.FromSeconds(20),
+        ["boot"] = TimeSpan.FromSeconds(20),
+        ["bitlocker"] = TimeSpan.FromSeconds(20),
+        ["antivirus"] = TimeSpan.FromSeconds(20),
+        ["battery"] = TimeSpan.FromSeconds(20),
     };
 
     private readonly ILogger<SystemProbe> _logger;
@@ -163,11 +172,18 @@ public sealed class SystemProbe
         var failures = new List<CheckFailure>();
         var sync = new object();
 
+        // Estado de ESTA corrida. Antes vivía en campos de la instancia y SystemProbe es singleton:
+        // una sonda abandonada por timeout seguía corriendo en su hilo y, al terminar, pisaba el
+        // resultado de la corrida siguiente — el antes/después se evaluaba con datos viejos y sin
+        // ningún CheckFailure que lo degradara. Con la sesión por llamada, el zombi escribe en SU
+        // sesión, que ya nadie lee.
+        var session = new ProbeSession();
+
         // Cada sonda devuelve una función que aplica su resultado sobre el snapshot. Así corren en
         // paralelo sin compartir estado mutable y el merge queda en un solo lugar.
         var probes = new (string Id, string Label, Func<Func<SystemSnapshot, SystemSnapshot>> Run)[]
         {
-            ("os", "Identificando el equipo", ProbeOperatingSystem),
+            ("os", "Identificando el equipo", () => ProbeOperatingSystem(session)),
             ("cpu", "Procesador", ProbeCpu),
             ("memory", "Memoria instalada", ProbeMemory),
             ("memory.pressure", "Uso de memoria", ProbeMemoryPressure),
@@ -178,10 +194,11 @@ public sealed class SystemProbe
             ("startup", "Programas de arranque", ProbeStartupEntries),
             ("boot", "Tiempo de encendido", ProbeBootTime),
             ("antivirus", "Antivirus instalados", ProbeAntivirus),
+            ("battery", "Estado de la batería", ProbeBattery),
             ("bitlocker", "Cifrado BitLocker", ProbeBitLocker),
             ("printers", "Impresoras", ProbePrinters),
             ("bluetooth", "Bluetooth", ProbeBluetooth),
-            ("crash", "Pantallazos azules", ProbeCrashData),
+            ("crash", "Pantallazos azules", () => ProbeCrashData(session)),
         };
 
         using var gate = new SemaphoreSlim(6);
@@ -220,9 +237,9 @@ public sealed class SystemProbe
 
         return new ProbeResult(
             snapshot,
-            _identity,
+            session.Identity,
             failures.OrderBy(f => f.CheckId, StringComparer.Ordinal).ToList(),
-            _crash);
+            session.Crash);
     }
 
     private async Task<Func<SystemSnapshot, SystemSnapshot>?> RunProbeAsync(
@@ -276,25 +293,25 @@ public sealed class SystemProbe
     // ---- Sondas -----------------------------------------------------------------------------
 
     /// <summary>
-    /// La identidad del equipo no cabe en <see cref="SystemSnapshot"/>, así que esta sonda la deja
-    /// acá. Se escribe una sola vez, desde el hilo de esta sonda, y se lee después de
-    /// <c>Task.WhenAll</c>: no hay carrera.
+    /// Lo que no cabe en <see cref="SystemSnapshot"/> (identidad e inestabilidad), con vida de UNA
+    /// corrida. Cada campo se escribe desde el hilo de su sonda y se lee tras <c>Task.WhenAll</c>.
     /// </summary>
-    private volatile MachineIdentity _identity = new();
-
-    /// <summary>
-    /// Los datos de inestabilidad no caben en <see cref="SystemSnapshot"/>. Misma mecánica que
-    /// <see cref="_identity"/>: se escribe desde el hilo de su sonda y se lee tras <c>Task.WhenAll</c>.
-    /// </summary>
-    private volatile CrashData _crash = CrashData.Empty;
+    private sealed class ProbeSession
+    {
+        public volatile MachineIdentity Identity = new();
+        public volatile CrashData Crash = CrashData.Empty;
+    }
 
     /// <summary>Días de historial que se analizan para los pantallazos.</summary>
     public int CrashWindowDays { get; init; } = 60;
 
-    private Func<SystemSnapshot, SystemSnapshot> ProbeOperatingSystem()
+    private static Func<SystemSnapshot, SystemSnapshot> ProbeOperatingSystem(ProbeSession session)
     {
         string? caption = null, build = null, manufacturer = null, model = null;
-        bool domainJoined = false;
+
+        // null = no se pudo leer. Antes un fallo de lectura se volvía «false», que es afirmar
+        // «no está en dominio» sin haberlo mirado — y el modo restringido no se activaba.
+        bool? domainJoined = null;
 
         foreach (ManagementObject os in Query("SELECT Caption, BuildNumber FROM Win32_OperatingSystem"))
         {
@@ -308,11 +325,11 @@ public sealed class SystemProbe
         {
             manufacturer = Text(cs, "Manufacturer");
             model = Text(cs, "Model");
-            domainJoined = Bool(cs, "PartOfDomain") ?? false;
+            domainJoined = Bool(cs, "PartOfDomain");
             break;
         }
 
-        _identity = new MachineIdentity
+        session.Identity = new MachineIdentity
         {
             OsCaption = caption,
             OsBuild = build,
@@ -496,9 +513,13 @@ public sealed class SystemProbe
         return s => predictsFailure switch
         {
             // SMART manda sobre HealthStatus: es la señal más directa de falla inminente.
-            true => s with { PrimaryDiskHealth = DiskHealth.Failing },
-            false when s.PrimaryDiskHealth == DiskHealth.Unknown => s with { PrimaryDiskHealth = DiskHealth.Healthy },
-            _ => s,
+            true => s with { PrimaryDiskHealth = DiskHealth.Failing, SmartPredictsFailure = true },
+
+            // SMART negativo ya NO asciende Unknown a Healthy. Era la vía por la que un timeout de
+            // disk.physical terminaba reportando «disco.salud = Healthy» — salud que nadie midió
+            // (pasó en el log del 2026-08-29). El dato de SMART viaja en su propio campo.
+            false => s with { SmartPredictsFailure = false },
+            null => s,
         };
     }
 
@@ -658,7 +679,7 @@ public sealed class SystemProbe
 
     private static Func<SystemSnapshot, SystemSnapshot> ProbeAntivirus()
     {
-        int active = 0;
+        var names = new List<string>();
 
         foreach (ManagementObject av in Query(
             "SELECT displayName, productState FROM AntiVirusProduct", SecurityCenterNamespace))
@@ -667,29 +688,109 @@ public sealed class SystemProbe
             // protección en tiempo real está encendida.
             if (Number(av, "productState") is double state && ((int)state >> 8 & 0xFF) != 0)
             {
-                active++;
+                names.Add(Text(av, "displayName") ?? "Antivirus sin nombre");
             }
         }
 
-        return s => s with { ActiveAntivirusCount = active };
+        // Si la query tira excepción o da timeout, RunProbeAsync descarta la mutación y los campos
+        // quedan null — «no medido», no «cero antivirus».
+        return s => s with { ActiveAntivirusCount = names.Count, ActiveAntivirusNames = names };
+    }
+
+    /// <summary>
+    /// Presencia de batería y desgaste, sin generar el batteryreport de powercfg (escribe un archivo;
+    /// el diagnóstico es de solo lectura).
+    /// </summary>
+    /// <remarks>
+    /// <para>Contratos SIN VERIFICAR en Windows real: <c>Win32_Battery</c> para la presencia, y en
+    /// <c>root\wmi</c> las clases <c>BatteryStaticData.DesignedCapacity</c> y
+    /// <c>BatteryFullChargedCapacity.FullChargedCapacity</c> para el desgaste. Son las mismas fuentes
+    /// que usa el batteryreport.</para>
+    ///
+    /// <para><c>Win32_Battery</c> sin filas en un desktop es lo esperado: <c>HasBattery = false</c> es
+    /// un dato medido, no un fallo. En cambio una excepción deja todo en null vía el mecanismo general
+    /// de sondas.</para>
+    /// </remarks>
+    private static Func<SystemSnapshot, SystemSnapshot> ProbeBattery()
+    {
+        bool hasBattery = false;
+
+        foreach (ManagementObject _ in Query("SELECT DeviceID FROM Win32_Battery"))
+        {
+            hasBattery = true;
+            break;
+        }
+
+        if (!hasBattery)
+        {
+            return s => s with { HasBattery = false };
+        }
+
+        // Las dos clases devuelven UNA instancia POR batería, así que se correlaciona por
+        // InstanceName: dividir la capacidad de diseño de una batería contra la carga completa de
+        // otra (laptops con dos baterías) inventaría un desgaste.
+        var designedByInstance = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var fullByInstance = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ManagementObject b in Query(
+            "SELECT InstanceName, DesignedCapacity FROM BatteryStaticData", WmiNamespace))
+        {
+            if (Text(b, "InstanceName") is { } key && Number(b, "DesignedCapacity") is > 0 and double d)
+            {
+                designedByInstance[key] = d;
+            }
+        }
+
+        foreach (ManagementObject b in Query(
+            "SELECT InstanceName, FullChargedCapacity FROM BatteryFullChargedCapacity", WmiNamespace))
+        {
+            if (Text(b, "InstanceName") is { } key && Number(b, "FullChargedCapacity") is > 0 and double f)
+            {
+                fullByInstance[key] = f;
+            }
+        }
+
+        // Se reporta la batería MÁS desgastada: es la que motiva el recambio. Una pareja incoherente
+        // (carga completa mayor al diseño, pasa con firmware que redondea) queda fuera del cálculo —
+        // null, jamás «0 % de desgaste»: un desgaste cero que nadie midió es un dato inventado.
+        double? wear = null;
+        foreach ((string key, double designed) in designedByInstance)
+        {
+            if (fullByInstance.TryGetValue(key, out double fullCharged) && fullCharged <= designed)
+            {
+                double candidate = 100.0 * (1 - fullCharged / designed);
+                wear = wear is double current ? Math.Max(current, candidate) : candidate;
+            }
+        }
+
+        return s => s with { HasBattery = true, BatteryWearPercent = wear };
     }
 
     private static Func<SystemSnapshot, SystemSnapshot> ProbeBitLocker()
     {
-        bool active = false;
+        // ProtectionStatus: 0 = apagado, 1 = encendido, 2 = desconocido (p. ej. volumen bloqueado).
+        // Un 2 NO es «sin BitLocker»: si se tratara como false, la compuerta del peor daño posible
+        // quedaría abierta justo en un volumen que probablemente está cifrado. 2 → null (no medido),
+        // y null falla cerrado aguas abajo.
+        bool? active = false;
 
         foreach (ManagementObject volume in Query(
             "SELECT DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume", BitLockerNamespace))
         {
-            // ProtectionStatus: 0 = apagado, 1 = encendido, 2 = desconocido.
-            if (Number(volume, "ProtectionStatus") is double status && (int)status == 1)
+            switch ((int?)Number(volume, "ProtectionStatus"))
             {
-                active = true;
-                break;
+                case 1:
+                    return s => s with { BitLockerActive = true };
+                case 0:
+                    break; // apagado medido: no cambia el acumulado
+                default:
+                    active = null; // 2, o valor ilegible: ya no se puede afirmar «apagado»
+                    break;
             }
         }
 
-        return s => s with { BitLockerActive = active };
+        bool? measured = active;
+        return s => s with { BitLockerActive = measured };
     }
 
     private static Func<SystemSnapshot, SystemSnapshot> ProbePrinters()
@@ -737,7 +838,7 @@ public sealed class SystemProbe
     /// Cada bloque va en su propio try: en un equipo que se cae, es habitual que algún registro esté
     /// corrupto o vacío. Que falte uno no puede impedir leer los demás.
     /// </remarks>
-    private Func<SystemSnapshot, SystemSnapshot> ProbeCrashData()
+    private Func<SystemSnapshot, SystemSnapshot> ProbeCrashData(ProbeSession session)
     {
         DateTime since = DateTime.Now.AddDays(-CrashWindowDays);
 
@@ -745,6 +846,12 @@ public sealed class SystemProbe
         int whea = 0, shutdowns = 0, diskErrors = 0, minidumps = 0;
         var updates = new List<InstalledUpdate>();
         var problemDevices = new List<string>();
+
+        // Cada bloque traga su excepción a propósito (en un equipo roto es normal que un registro
+        // esté corrupto), pero «no pude leer» tiene que quedar registrado: sin estos flags, un Event
+        // Log ilegible producía listas vacías que el checklist leía como «cero pantallazos, cero
+        // errores de disco» — verde sin medir, en el tipo de equipo donde más importa.
+        bool crashLogRead = true, diskEventsRead = true, devicesRead = true;
 
         // --- Pantallazos: evento 1001 de WER-SystemErrorReporting trae el bugcheck en el mensaje ---
         try
@@ -778,17 +885,28 @@ public sealed class SystemProbe
         catch (Exception ex) when (ex is EventLogException or UnauthorizedAccessException)
         {
             // Sin acceso al registro de eventos no hay análisis de pantallazos, pero el resto sigue.
+            crashLogRead = false;
         }
 
-        whea = CountEvents("Microsoft-Windows-WHEA-Logger", null, since);
-        shutdowns = CountEvents("Microsoft-Windows-Kernel-Power", 41, since);
+        whea = CountEvents("Microsoft-Windows-WHEA-Logger", null, since) ?? 0;
+        shutdowns = CountEvents("Microsoft-Windows-Kernel-Power", 41, since) ?? 0;
 
         foreach (string provider in new[] { "disk", "Ntfs", "volmgr" })
         {
-            diskErrors += CountEvents(provider, null, since, onlyErrors: true);
+            if (CountEvents(provider, null, since, onlyErrors: true) is int count)
+            {
+                diskErrors += count;
+            }
+            else
+            {
+                // Un proveedor ilegible deja el conteo incompleto: cero errores leídos no es
+                // «cero errores».
+                diskEventsRead = false;
+            }
         }
 
-        // --- Volcados de memoria ---
+        // --- Volcados de memoria (solo los de la ventana analizada: un .dmp de hace dos años no
+        // --- es evidencia de inestabilidad actual, y el checklist dice «en N días») ---
         try
         {
             string minidumpDir = Path.Combine(
@@ -796,11 +914,25 @@ public sealed class SystemProbe
 
             if (Directory.Exists(minidumpDir))
             {
-                minidumps = Directory.EnumerateFiles(minidumpDir, "*.dmp").Count();
+                foreach (string dump in Directory.EnumerateFiles(minidumpDir, "*.dmp"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTime(dump) >= since)
+                        {
+                            minidumps++;
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Un archivo ilegible no corta la cuenta de los demás.
+                    }
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            crashLogRead = false;
         }
 
         // --- Actualizaciones instaladas, para el cruce de fechas ---
@@ -847,9 +979,10 @@ public sealed class SystemProbe
         }
         catch (ManagementException)
         {
+            devicesRead = false;
         }
 
-        _crash = new CrashData(
+        session.Crash = new CrashData(
             crashes.OrderByDescending(c => c.When).ToList(),
             minidumps,
             whea,
@@ -857,7 +990,12 @@ public sealed class SystemProbe
             diskErrors,
             updates.OrderByDescending(u => u.InstalledOn).ToList(),
             problemDevices,
-            CrashWindowDays);
+            CrashWindowDays)
+        {
+            CrashLogRead = crashLogRead,
+            DiskEventsRead = diskEventsRead,
+            DevicesRead = devicesRead,
+        };
 
         // Los pantallazos no modifican el snapshot: viajan en ProbeResult.Crash.
         return s => s;
@@ -894,8 +1032,11 @@ public sealed class SystemProbe
         return match.Success ? match.Value : null;
     }
 
-    /// <summary>Cuenta eventos de un proveedor desde una fecha. Devuelve 0 si el registro no existe.</summary>
-    private static int CountEvents(string providerName, int? eventId, DateTime since, bool onlyErrors = false)
+    /// <summary>
+    /// Cuenta eventos de un proveedor desde una fecha. <c>null</c> = el registro no se pudo leer —
+    /// que NO es lo mismo que cero eventos, y quien suma conteos tiene que saberlo.
+    /// </summary>
+    private static int? CountEvents(string providerName, int? eventId, DateTime since, bool onlyErrors = false)
     {
         try
         {
@@ -931,7 +1072,7 @@ public sealed class SystemProbe
         }
         catch (Exception ex) when (ex is EventLogException or UnauthorizedAccessException)
         {
-            return 0;
+            return null;
         }
     }
 

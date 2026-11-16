@@ -84,38 +84,62 @@ public static class SoftwareFindings
 
     private static void AddBitLockerNotice(SystemSnapshot s, List<Finding> findings)
     {
-        if (!s.BitLockerActive)
+        if (s.BitLockerActive == true)
         {
+            findings.Add(new Finding(
+                "bitlocker.active",
+                Severity.Warning,
+                "Este equipo tiene BitLocker activo",
+                "Las reparaciones que tocan el disco o el arranque pueden hacer que Windows pida la " +
+                "clave de recuperación de 48 dígitos al reiniciar. Sin esa clave el cliente queda fuera " +
+                "de su propio equipo. Esas reparaciones quedan bloqueadas hasta que confirmes que la " +
+                "clave está a mano; el resto de las mejoras corre igual.",
+                new[] { new Metric("BitLocker", "Activo en C:") }));
             return;
         }
 
-        findings.Add(new Finding(
-            "bitlocker.active",
-            Severity.Warning,
-            "Este equipo tiene BitLocker activo",
-            "Las reparaciones que tocan el disco o el arranque pueden hacer que Windows pida la " +
-            "clave de recuperación de 48 dígitos al reiniciar. Sin esa clave el cliente queda fuera " +
-            "de su propio equipo. Esas reparaciones quedan bloqueadas hasta que confirmes que la " +
-            "clave está a mano; el resto de las mejoras corre igual.",
-            new[] { new Metric("BitLocker", "Activo en C:") }));
+        // Sin el dato se bloquea lo mismo que con BitLocker activo (fallar cerrado), y eso hay que
+        // decirlo: un botón bloqueado sin motivo visible parece un bug.
+        if (s.BitLockerActive is null)
+        {
+            findings.Add(new Finding(
+                "bitlocker.unknown",
+                Severity.Info,
+                "No se pudo comprobar BitLocker",
+                "La consulta del estado de cifrado no se completó. Por precaución, las reparaciones " +
+                "que tocan el disco o el arranque quedan bloqueadas: si BitLocker estuviera activo, " +
+                "podrían hacer que Windows pida la clave de recuperación al reiniciar.",
+                new[] { new Metric("BitLocker", "No comprobado") }));
+        }
     }
 
     private static void AddDomainNotice(SystemSnapshot s, List<Finding> findings)
     {
-        if (!s.IsDomainJoined)
+        if (s.IsDomainJoined == true)
         {
+            findings.Add(new Finding(
+                "domain.joined",
+                Severity.Info,
+                "El equipo está unido a un dominio",
+                "Las políticas de la empresa revierten muchos cambios en la próxima actualización de " +
+                "directivas: el arreglo parece funcionar y se deshace solo. Además, desactivar agentes " +
+                "de gestión o la VPN corporativa rompe el equipo para el área de sistemas. Se activa el " +
+                "modo restringido: solo limpieza de temporales y cachés.",
+                new[] { new Metric("Modo", "Restringido") }));
             return;
         }
 
-        findings.Add(new Finding(
-            "domain.joined",
-            Severity.Info,
-            "El equipo está unido a un dominio",
-            "Las políticas de la empresa revierten muchos cambios en la próxima actualización de " +
-            "directivas: el arreglo parece funcionar y se deshace solo. Además, desactivar agentes " +
-            "de gestión o la VPN corporativa rompe el equipo para el área de sistemas. Se activa el " +
-            "modo restringido: solo limpieza de temporales y cachés.",
-            new[] { new Metric("Modo", "Restringido") }));
+        if (s.IsDomainJoined is null)
+        {
+            findings.Add(new Finding(
+                "domain.unknown",
+                Severity.Info,
+                "No se pudo comprobar si el equipo está en un dominio",
+                "Por precaución se activa el modo restringido, igual que si estuviera en dominio: " +
+                "solo limpieza de temporales y cachés. Si el equipo es personal, volvé a analizar " +
+                "para reintentar la medición.",
+                new[] { new Metric("Modo", "Restringido por precaución") }));
+        }
     }
 
     /// <summary>

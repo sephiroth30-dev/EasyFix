@@ -4,21 +4,48 @@
 > Versionado con el código, así que viaja con el repo. El `README.md` es el resumen para quien llega
 > nuevo; esto es el detalle para seguir trabajando.
 
-> Al retomar, leer en este orden: **v0.8.0 — Estado y plan activo** → la sección del componente que
+> Al retomar, leer en este orden: **v0.9.0 — Estado y plan activo** → la sección del componente que
 > se vaya a tocar. El resto del documento es material de referencia que cambia poco: objetivo,
 > arquitectura, catálogos de diagnóstico y de fixes.
 
-## v0.8.0 — Estado y plan activo
+## v0.9.0 — Estado y plan activo
 
-> Última actualización: 2026-09-01, después de v0.8.0.
-> Rama `main`, árbol limpio, tag `v0.8.0`. **432 tests pasan, 2 se omiten** (los que exigen Windows).
-> `dotnet build` limpio en los tres proyectos, incluido el de WPF. `.exe` portable de 69 MiB.
+> Última actualización: 2026-11-15, después de v0.9.0.
+> **492 tests pasan, 2 se omiten** (los que exigen Windows). `dotnet build` limpio en Release, cero
+> warnings. `.exe` portable de 68,9 MiB.
 
 ### Dónde está el proyecto
 
 Las tres acciones están conectadas y funcionan de punta a punta: **analizar**, **mejorar
 rendimiento**, **reparar errores**, más **instalar programas** y **deshacer todo**. Lo que falta no es
 capacidad — es **verificación en Windows**. Ver «Lo que nunca se ejecutó en Windows», abajo.
+
+### v0.9.0 — el estado del equipo se vuelve verificable
+
+Tres frentes, todos lógica pura testeada desde macOS:
+
+1. **La lista de verificación antes/después** (`Core/Verification/`) — era el punto 2 de «lo que
+   falta». 12 condiciones con tres estados (verde / rojo / **no determinado**), evaluadas al analizar
+   y **re-medidas automáticamente** después de mejorar o reparar. La UI las muestra como
+   `antes ✗ → después ✓` en el resultado. Una sonda caída degrada sus condiciones a «no determinado»
+   — el evaluador recibe los `CheckFailure` para no leer `CrashData.Empty` como «cero pantallazos».
+2. **El snapshot distingue «no medido» de un valor** — era el punto 1 de «lo que falta» y las
+   sospechas 1–5. `IsDomainJoined`, `BitLockerActive`, `HasPrinters`, `HasBluetoothAdapter`,
+   `ActiveAntivirusCount` son nullable; `IsSsd` es `bool?`; SMART viaja en `SmartPredictsFailure` y
+   ya no asciende `Unknown` a `Healthy`. La regla de consumo es **fallar cerrado** (BitLocker
+   desconocido bloquea, dominio desconocido restringe, impresora desconocida protege el Spooler) y
+   está testeada en `SnapshotHonestyTests`.
+3. **Reputación de software + perfil de máquina** — `InstalledProgramsReader` (claves `Uninstall`,
+   jamás `Win32_Product`) cruzado contra `Reputation.KnownBad` en `appsettings.json` (~50 PUPs,
+   match por publisher+producto, confirmado-dañino vs dudoso, **nunca desinstala solo**);
+   `SecurityCenter2` ahora da nombres de antivirus y la recomendación aplica «sin licencia de pago,
+   queda solo Defender»; sonda de batería nueva (`Win32_Battery` + `root\wmi`); `SaturationAdvisor`
+   (alerta de memoria 70–85 % y proyección de disco con el supuesto declarado);
+   `SoftwareSelectionAdvisor` (qué instalar según RAM/disco/batería medidos).
+
+Material de referencia usado: catálogos de winutil y Win11Debloat extraídos a
+`scratchpad/reference/EXTRACT.md` (sesión del 2026-11-15); los tweaks de registro de winutil quedaron
+**fuera** a propósito — son candidatos para un Tier B futuro, no para el 1-clic.
 
 ### El hilo conductor de las últimas cuatro versiones
 
@@ -106,34 +133,28 @@ equipo con **winget 1.6 o superior**. En winget 1.24 y anteriores ese comando de
 `INVALID_CL_ARGUMENTS` — es lo que pasó en el equipo del 2026-08-29, y por eso ahí las constantes
 fueron la única fuente. Está pedido en `docs/PRUEBAS.md`, Nivel 1.
 
-### Sospechas abiertas, sin verificar y sin tocar
+### Sospechas del 2026-08-29 — CERRADAS en v0.9.0
 
-Salieron del análisis multiagente de los logs del 2026-08-29. Los refutadores de estas dos **no
-llegaron a correr** (límite de sesión), así que son hallazgos sin verificación adversarial: hay que
-comprobarlos antes de cambiar código.
+Salieron del análisis multiagente de los logs del 2026-08-29. Las seis se confirmaron leyendo el
+código y se corrigieron en v0.9.0 (correcciones **sin correr en Windows** todavía):
 
-1. **`disco.salud = Healthy` con la sonda de disco en timeout.** El log dice `disco.tipo = Unknown` y
-   `disk.physical` en timeout, pero `disco.salud = Healthy`. ¿De dónde sale ese `Healthy`? Si es el
-   valor por defecto del enum, el reporte está afirmando salud que no midió — el mismo pecado que
-   v0.8.0 arregló en otro lado. Mirar `ProbeSmart` vs `ProbePhysicalDisk` y el default de
-   `DiskHealth`.
-2. **«0 hallazgos de hardware» con la sonda de pantallazos en timeout.** Mismo patrón: concluir
-   ausencia de problemas a partir de una comprobación que no terminó.
-3. **`bateria.desgaste = no medido` no es una medición fallida** — según el análisis, **no existe
-   ninguna sonda de batería** en el código. Si es así, el campo miente por omisión: dice «no medido»
-   como si se hubiera intentado.
-4. **Bools y contadores sin estado «no medido»** — `IsDomainJoined`, `BitLockerActive`, `HasPrinters`,
-   `HasBluetoothAdapter`, `ActiveAntivirusCount` son `bool`/`int`, no `bool?`/`int?`. Un timeout se
-   reporta como `False`/`0`, que es una afirmación. `Network` se agregó como `ConnectivityStatus?`
-   justamente para no repetirlo.
-5. **`disco.tipo = Unknown` se consume como si fuera un dato** — `IsSsd` devuelve `false` para
-   `Unknown`, así que un disco no identificado se trata como «no es SSD». Suprime la recomendación más
-   valiosa de la herramienta (cambiar a SSD) y afecta la condición de `SysMain`.
-6. **`SlowProbes` incompleto** — `disk.smart`, `boot`, `bitlocker` y `antivirus` siguen con 5 s. En el
-   Pentium G2020, `disk.physical` y `crash` no alcanzaban con 5 s; es razonable que estas tampoco.
+1. `disco.salud = Healthy` con sonda en timeout → confirmada: `ProbeSmart` ascendía `Unknown` a
+   `Healthy` con SMART negativo. Ahora SMART viaja en `SmartPredictsFailure`.
+2. «0 hallazgos» con sonda de pantallazos caída → el `ChecklistEvaluator` recibe los `CheckFailure`
+   y degrada esas condiciones a «no determinado».
+3. Sonda de batería inexistente → confirmada: no existía. Se agregó (`battery`), contratos WMI SIN
+   VERIFICAR.
+4. Bools/contadores sin «no medido» → nullable + fallar cerrado en todos los consumidores.
+5. `IsSsd == false` para `Unknown` → `IsSsd` es `bool?`.
+6. `SlowProbes` incompleto → `disk.smart`, `boot`, `bitlocker`, `antivirus`, `battery` con 20 s
+   (presupuesto por analogía, sin verificar en equipo lento).
 
-Los puntos 1 a 5 son todos la misma clase de defecto: **el snapshot no distingue «no medido» de un
-valor**. Vale considerarlos como un solo trabajo.
+Residuo conocido y aceptado (ronda 3 de revisión de v0.9.0): los conteos `whea` y `shutdowns` de
+`ProbeCrashData` usan `?? 0` cuando su registro no se pudo leer. El efecto es **ausencia de
+hallazgo** y un `HardwareConfirmed` falso-negativo — degrada el consejo, nunca produce un verde: el
+checklist no consume esos conteos, y si el log System es ilegible el bloque de pantallazos (mismo
+log) también falla y ya degrada `crashes.none`. Si alguna vez un consumidor nuevo los lee, hay que
+darles flag de lectura como a los otros tres.
 
 ### Lo que nunca se ejecutó en Windows
 
@@ -151,6 +172,11 @@ operativo al que apunta**:
 - **Chrome y RustDesk por MSI.**
 - **`tools/spike/Verify-WindowsApis.ps1`** — escrito, nunca corrido. Sigue siendo la vía más rápida
   para validar de una todos los contratos de WMI. Es solo lectura.
+- **Todo v0.9.0**: la sonda de batería (`Win32_Battery`, `BatteryStaticData`,
+  `BatteryFullChargedCapacity` — contratos de documentación), `InstalledProgramsReader` (nombres de
+  valor de las claves `Uninstall`), el flujo UI del checklist con la re-medición tras reparar, los
+  publishers del catálogo de reputación contra registros reales, y los timeouts nuevos de
+  `SlowProbes` en equipo lento.
 
 `docs/PRUEBAS.md` tiene los niveles ordenados por riesgo. **El Nivel 1.5 (sin internet) es el más
 valioso ahora**: es solo lectura, se hace en cualquier equipo desenchufando el cable, y reproduce a
@@ -161,15 +187,18 @@ ninguna línea de `winget.exe`.
 
 En orden de valor, no de dependencia:
 
-1. **Distinguir «no medido» de un valor en todo el snapshot** — los puntos 1 a 5 de las sospechas
-   abiertas. Es la deuda de diseño que queda del mismo problema que produjo las últimas tres
-   versiones.
-2. **La lista de verificación antes/después** — las ~12 condiciones del objetivo «estado estándar»,
-   evaluadas dos veces y mostradas en dos columnas. Es el entregable que convierte «te lo dejé sin
-   errores» en algo verificable. Ver «Cómo se vuelve medible», más abajo.
+1. ~~Distinguir «no medido» de un valor en todo el snapshot~~ — **hecho en v0.9.0**.
+2. ~~La lista de verificación antes/después~~ — **hecho en v0.9.0** (sin los dos items profundos:
+   DISM/SFC y chkdsk salen «no determinado» hasta integrar sus resultados — ver punto 3b).
 3. **Medición antes/después del arranque** — el baseline ya se lee; falta guardarlo en el journal y
    comparar tras el reinicio contra el evento 100.
-4. **Tier B con casillas** — servicios, bloatware, apps UWP, efectos visuales.
+3b. **Conectar los resultados del escaneo profundo al checklist** — `DeepScanResults` ya existe como
+   parámetro; falta que «Reparar errores» alimente `SystemFilesHealthy`/`FileSystemClean` desde los
+   outcomes de DISM/SFC y chkdsk.
+4. **Tier B con casillas** — servicios, bloatware, apps UWP, efectos visuales, y la desinstalación
+   de los PUP confirmados del catálogo de reputación (pre-marcados; vía MSI `msiexec /x {guid} /qn`
+   cuando el ProductCode exista, nunca ejecutando UninstallString crudo). Los tweaks de registro de
+   winutil extraídos en la referencia son candidatos acá.
 5. **Modo «Restablecer a estado estándar»** — red, Windows Update, energía, asociaciones, Store,
    políticas locales.
 6. **Wizard de perfil**, los tres niveles.

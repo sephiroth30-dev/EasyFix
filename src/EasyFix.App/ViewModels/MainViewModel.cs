@@ -7,7 +7,9 @@ using EasyFix.Core.Diagnostics;
 using EasyFix.Core.Fixes;
 using EasyFix.Core.Network;
 using EasyFix.Core.Recommendations;
+using EasyFix.Core.Reputation;
 using EasyFix.Core.Rollback;
+using EasyFix.Core.Verification;
 using Microsoft.Extensions.Logging;
 
 namespace EasyFix.App.ViewModels;
@@ -40,6 +42,9 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly EasyFixOptions _options;
     private readonly SystemProbe _probe;
     private readonly HardwareAdvisor _advisor;
+    private readonly SaturationAdvisor _saturation;
+    private readonly SoftwareSelectionAdvisor _softwareSelection;
+    private readonly IInstalledProgramsReader _programs;
     private readonly WingetService _winget;
     private readonly IConnectivityCheck _connectivity;
     private readonly FixRunner _fixRunner;
@@ -47,6 +52,9 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly UndoEngine _undoEngine;
     private readonly JournalStore _journals;
     private readonly ILogger<MainViewModel> _logger;
+
+    /// <summary>El checklist del análisis, para la columna «antes» del después de reparar.</summary>
+    private ChecklistReport? _checklistBefore;
 
     /// <summary>Corrida que se va a deshacer. Se resuelve al abrir la pantalla.</summary>
     private StoredRun? _undoTarget;
@@ -61,6 +69,7 @@ public sealed partial class MainViewModel : ObservableObject
         EasyFixOptions options,
         SystemProbe probe,
         HardwareAdvisor advisor,
+        IInstalledProgramsReader programs,
         WingetService winget,
         IConnectivityCheck connectivity,
         FixRunner fixRunner,
@@ -72,6 +81,7 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(advisor);
+        ArgumentNullException.ThrowIfNull(programs);
         ArgumentNullException.ThrowIfNull(winget);
         ArgumentNullException.ThrowIfNull(connectivity);
         ArgumentNullException.ThrowIfNull(fixRunner);
@@ -83,6 +93,9 @@ public sealed partial class MainViewModel : ObservableObject
         _options = options;
         _probe = probe;
         _advisor = advisor;
+        _saturation = new SaturationAdvisor(options.Thresholds);
+        _softwareSelection = new SoftwareSelectionAdvisor(options.Thresholds);
+        _programs = programs;
         _winget = winget;
         _connectivity = connectivity;
         _fixRunner = fixRunner;
@@ -432,6 +445,20 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Resultado de la última reparación.</summary>
     public ObservableCollection<ReportRow> RepairRows { get; } = new();
 
+    /// <summary>
+    /// El estado del equipo como lista de condiciones. En el reporte muestra la foto de HOY; en el
+    /// resultado de la reparación, el antes → después por condición. Es el entregable que convierte
+    /// «te lo dejé sin errores» en algo verificable.
+    /// </summary>
+    public ObservableCollection<ReportRow> ChecklistRows { get; } = new();
+
+    /// <summary>Las mismas condiciones re-evaluadas tras reparar, como «antes → después».</summary>
+    public ObservableCollection<ReportRow> ChecklistCompareRows { get; } = new();
+
+    public bool HasChecklistRows => ChecklistRows.Count > 0;
+    public bool HasChecklistCompareRows => ChecklistCompareRows.Count > 0;
+    public bool HasRepairRows => RepairRows.Count > 0;
+
     /// <summary>Los programas configurados, con su casilla.</summary>
     public ObservableCollection<AppChoice> Apps { get; } = new();
 
@@ -489,6 +516,8 @@ public sealed partial class MainViewModel : ObservableObject
         SoftwareRows.Clear();
         HardwareRows.Clear();
         UndeterminedRows.Clear();
+        ChecklistRows.Clear();
+        ChecklistCompareRows.Clear();
         StatusMessage = null;
         ResetProgress("Analizando el equipo");
         CurrentScreen = Screen.Scanning;
@@ -509,9 +538,31 @@ public sealed partial class MainViewModel : ObservableObject
             // sumarlos al final alargaría el análisis por algo que no depende de él.
             Task<ConnectivityResult> networkTask = _connectivity.CheckAsync(_cts!.Token);
 
+            // Los programas instalados también en paralelo: son claves de registro, solo lectura.
+            // El try vive DENTRO de la tarea: si el análisis se cancela antes de este await, una
+            // excepción del lector no queda huérfana como UnobservedTaskException.
+            Task<IReadOnlyList<InstalledProgram>?> programsTask = Task.Run(
+                IReadOnlyList<InstalledProgram>? () =>
+                {
+                    try
+                    {
+                        return _programs.Read();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Sin la lista no hay cruce de reputación; se dice en «no se pudo
+                        // determinar», nunca se asume «cero programas malos».
+                        _logger.LogWarning(ex, "No se pudieron leer los programas instalados.");
+                        return null;
+                    }
+                },
+                _cts!.Token);
+
             ProbeResult result = await _probe.ProbeAsync(progress, _cts!.Token);
 
             ConnectivityResult network = await networkTask;
+
+            IReadOnlyList<InstalledProgram>? installedPrograms = await programsTask;
 
             // Que el reporte lo diga ANTES de que el técnico apriete «Instalar programas». En el
             // equipo del 2026-08-29 se enteró al revés: cuatro fallos, y con el motivo equivocado.
@@ -545,7 +596,12 @@ public sealed partial class MainViewModel : ObservableObject
                         result.Failures.Select(f => $"  {f.CheckId}: {f.Reason}")));
             }
 
-            BuildReport(result, _lastCrash);
+            // La foto «antes»: el mismo checklist se re-evalúa después de reparar y se muestran
+            // las dos columnas. Es lo que convierte la mejora en algo verificable.
+            _checklistBefore = ChecklistEvaluator.Evaluate(
+                result.Snapshot, result.Crash, result.Failures, _options.Thresholds);
+
+            BuildReport(result, _lastCrash, installedPrograms);
             CurrentScreen = Screen.Report;
         }
         catch (OperationCanceledException)
@@ -562,13 +618,18 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void BuildReport(ProbeResult result, CrashAnalysis crash)
+    private void BuildReport(
+        ProbeResult result, CrashAnalysis crash, IReadOnlyList<InstalledProgram>? installedPrograms)
     {
         SystemSnapshot snapshot = result.Snapshot;
 
         SystemSummary = result.Identity.Describe(snapshot);
         FixesBlocked = _advisor.ShouldBlockFixes(snapshot);
-        BitLockerActive = snapshot.BitLockerActive;
+        // La casilla de confirmar la clave solo aparece con BitLocker MEDIDO activo. Con null
+        // (no se pudo comprobar), confirmar la clave no cambiaría nada — FixRunner bloquea igual,
+        // fallando cerrado — así que pedirla sería mentirle al técnico; el hallazgo
+        // «bitlocker.unknown» del reporte ya explica el bloqueo y que conviene re-analizar.
+        BitLockerActive = snapshot.BitLockerActive == true;
 
         // Los pantallazos van primero: es lo más grave que puede tener un equipo.
         foreach (Finding finding in CrashAnalyzer.ToFindings(crash))
@@ -585,6 +646,36 @@ public sealed partial class MainViewModel : ObservableObject
             SoftwareRows.Add(ToRow(finding));
         }
 
+        // Saturación próxima: alerta temprana con lo medido hoy (y una única estimación declarada).
+        foreach (Finding finding in _saturation.Evaluate(snapshot))
+        {
+            SoftwareRows.Add(ToRow(finding));
+        }
+
+        // Reputación de lo instalado. Sin la lista no se afirma nada: va a «no determinado».
+        if (installedPrograms is not null)
+        {
+            IReadOnlyList<ReputationMatch> matches =
+                ReputationEvaluator.Match(installedPrograms, _options.Reputation.KnownBad);
+
+            foreach (Finding finding in ReputationEvaluator.ToFindings(matches))
+            {
+                SoftwareRows.Add(ToRow(finding));
+            }
+
+            _logger.LogInformation(
+                "Programas instalados: {Count}. Con mala reputación: {Bad}.",
+                installedPrograms.Count, matches.Count);
+        }
+        else
+        {
+            UndeterminedRows.Add(new ReportRow(
+                "Programas instalados",
+                "No se pudo leer la lista de programas, así que no se revisó si hay software con " +
+                "mala reputación.",
+                null, "info"));
+        }
+
         foreach (Recommendation rec in _advisor.Advise(snapshot))
         {
             var row = new ReportRow(
@@ -599,6 +690,28 @@ public sealed partial class MainViewModel : ObservableObject
                 });
 
             (rec.NeedsHardware ? HardwareRows : SoftwareRows).Add(row);
+        }
+
+        // Qué software conviene en ESTE equipo, según lo medido (RAM, disco, batería).
+        foreach (Recommendation rec in _softwareSelection.Advise(snapshot))
+        {
+            SoftwareRows.Add(new ReportRow(rec.Title, rec.Detail, rec.Evidence?.ToString(), "info"));
+        }
+
+        // El estado del equipo como lista de condiciones: la columna «antes».
+        if (_checklistBefore is { } checklist)
+        {
+            foreach (ChecklistItem item in checklist.Items)
+            {
+                ChecklistRows.Add(ToChecklistRow(item));
+            }
+
+            _logger.LogInformation(
+                "Checklist inicial: {Pass} en verde, {Fail} en rojo, {Nd} sin determinar.{NewLine}{Items}",
+                checklist.PassCount, checklist.FailCount, checklist.NotDeterminedCount,
+                Environment.NewLine,
+                string.Join(Environment.NewLine, checklist.Items.Select(i =>
+                    $"  [{Mark(i.Status)}] {i.Title} — {i.Reason}")));
         }
 
         foreach (CheckFailure failure in result.Failures)
@@ -697,7 +810,7 @@ public sealed partial class MainViewModel : ObservableObject
                     MachineName = Environment.MachineName,
                     OsVersion = _lastProbe.Identity.OsCaption,
                     DomainJoined = _lastProbe.Snapshot.IsDomainJoined,
-                    BitLockerWasSuspended = _lastProbe.Snapshot.BitLockerActive && BitLockerKeyConfirmed,
+                    BitLockerWasSuspended = _lastProbe.Snapshot.BitLockerActive == true && BitLockerKeyConfirmed,
                     BaselineMainPathBootTimeMs = _lastProbe.Snapshot.MainPathBootTimeMs,
                 },
                 sink);
@@ -719,6 +832,13 @@ public sealed partial class MainViewModel : ObservableObject
             sink.Dispose();
             sink = null;
             RefreshUndoAvailability();
+
+            // La prueba de que funcionó: se vuelve a medir TODO y se muestra el checklist en dos
+            // columnas. Sin esta re-medición, «mejoró» sería una promesa, no un dato.
+            if (!result.Aborted)
+            {
+                await VerifyAfterFixesAsync(_cts!.Token);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -744,6 +864,94 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Re-mide el equipo después de aplicar los arreglos y arma el checklist antes → después.
+    /// </summary>
+    /// <remarks>
+    /// <para>Es la diferencia entre «apliqué 6 cambios» y «el equipo pasó de 4 condiciones en rojo a
+    /// 1». Las que persisten en rojo se muestran con su motivo — si es hardware, se dice. Un
+    /// re-análisis que falla no inventa mejoras: deja la columna «después» como no determinada.</para>
+    ///
+    /// <para>Ojo con una limitación medida: el retraso de arranque y el tiempo de boot NO cambian
+    /// hasta reiniciar, así que esas condiciones van a salir iguales acá. El texto de reinicio ya lo
+    /// avisa; la comparación de boot real es la fase 3 del plan.</para>
+    /// </remarks>
+    private async Task VerifyAfterFixesAsync(CancellationToken ct)
+    {
+        if (_checklistBefore is not { } before)
+        {
+            return;
+        }
+
+        ProgressLabel = "Verificando el resultado…";
+        ProgressDetail = "Se vuelve a medir el equipo para comparar contra el estado inicial.";
+        ProgressIsIndeterminate = true;
+
+        try
+        {
+            Task<ConnectivityResult> networkTask = _connectivity.CheckAsync(ct);
+            ProbeResult fresh = await _probe.ProbeAsync(progress: null, ct);
+            ConnectivityResult network = await networkTask;
+
+            fresh = fresh with { Snapshot = fresh.Snapshot with { Network = network.Status } };
+
+            ChecklistReport after = ChecklistEvaluator.Evaluate(
+                fresh.Snapshot, fresh.Crash, fresh.Failures, _options.Thresholds);
+
+            ChecklistCompareRows.Clear();
+            var pair = new BeforeAfterChecklist(before, after);
+
+            foreach ((ChecklistItem b, ChecklistItem? a) in pair.Rows)
+            {
+                ChecklistCompareRows.Add(ToCompareRow(b, a));
+            }
+
+            OnPropertyChanged(nameof(HasChecklistCompareRows));
+
+            // El snapshot fresco pasa a ser el vigente: una segunda pasada de fixes decide sobre
+            // el estado real, no sobre el de antes de reparar.
+            _lastProbe = fresh;
+            _lastCrash = CrashAnalyzer.Analyze(fresh.Crash);
+
+            _logger.LogInformation(
+                "Checklist después de reparar: {Improved} a verde, {Still} en rojo " +
+                "({Regressed} empeoraron), {Lost} salieron del rojo sin re-medirse.{NewLine}{Items}",
+                pair.ImprovedCount, pair.StillFailingCount, pair.RegressedCount, pair.LostEvidenceCount,
+                Environment.NewLine,
+                string.Join(Environment.NewLine, pair.Rows.Select(r =>
+                    $"  {r.Before.Title}: {Mark(r.Before.Status)} → {Mark(r.After?.Status ?? ChecklistStatus.NotDetermined)}")));
+
+            // Una regresión no puede quedar enterrada en el log: si algo EMPEORÓ tras reparar, es
+            // lo primero que el técnico tiene que ver.
+            if (pair.RegressedCount > 0)
+            {
+                SetStatus(
+                    $"Atención: {pair.RegressedCount} condición(es) que estaban bien ahora están mal. " +
+                    "Revisá la tabla antes/después y considerá «Deshacer todo».",
+                    warning: true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("La verificación posterior se canceló.");
+        }
+        catch (Exception ex)
+        {
+            // La reparación ya está hecha y registrada; si la verificación falla, se dice y ya.
+            _logger.LogError(ex, "La verificación posterior falló.");
+            SetStatus(
+                "Los cambios se aplicaron, pero la re-medición para comparar antes/después falló: " +
+                $"{ex.GetType().Name}. Volvé a «Analizar el equipo» para ver el estado actual.",
+                warning: true);
+        }
+        finally
+        {
+            ProgressLabel = string.Empty;
+            ProgressDetail = null;
+            ProgressIsIndeterminate = false;
+        }
+    }
+
     private void ShowRepairResult(RunResult result, string journalPath)
     {
         RebootRequired = result.RebootRequired;
@@ -753,6 +961,7 @@ public sealed partial class MainViewModel : ObservableObject
             RepairRows.Add(new ReportRow(
                 "No se aplicó ningún cambio", result.AbortReason ?? string.Empty, null, "crit"));
             SetStatus("La reparación se abortó antes de tocar nada.", warning: true);
+            OnPropertyChanged(nameof(HasRepairRows));
             return;
         }
 
@@ -806,6 +1015,7 @@ public sealed partial class MainViewModel : ObservableObject
         SetStatus(
             string.Join(" · ", parts) + $". Registro en {journalPath}",
             warning: failed > 0 || result.RebootRequired || result.RanWithoutRestorePoint);
+        OnPropertyChanged(nameof(HasRepairRows));
     }
 
     // ---- Instalar programas -----------------------------------------------------------------
@@ -928,7 +1138,39 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSoftwareRows));
         OnPropertyChanged(nameof(HasHardwareRows));
         OnPropertyChanged(nameof(HasUndeterminedRows));
+        OnPropertyChanged(nameof(HasChecklistRows));
+        OnPropertyChanged(nameof(HasChecklistCompareRows));
     }
+
+    // ---- Checklist en pantalla ----------------------------------------------------------------
+
+    private static string Mark(ChecklistStatus status) => status switch
+    {
+        ChecklistStatus.Pass => "✓",
+        ChecklistStatus.Fail => "✗",
+        _ => "—",
+    };
+
+    private static string KindFor(ChecklistItem item) => item.Status switch
+    {
+        ChecklistStatus.Pass => "ok",
+        ChecklistStatus.Fail => item.NeedsHardware ? "crit" : "warn",
+        _ => "info",
+    };
+
+    /// <summary>Una condición como fila simple: «✓ Salud del disco» + el motivo medido.</summary>
+    private static ReportRow ToChecklistRow(ChecklistItem item) => new(
+        $"{Mark(item.Status)}  {item.Title}",
+        item.Reason,
+        null,
+        KindFor(item));
+
+    /// <summary>Una condición como «antes → después», emparejada por id.</summary>
+    private static ReportRow ToCompareRow(ChecklistItem before, ChecklistItem? after) => new(
+        after is null ? before.Title : $"{Mark(after.Status)}  {before.Title}",
+        after?.Reason ?? before.Reason,
+        $"antes {Mark(before.Status)}  →  después {Mark(after?.Status ?? ChecklistStatus.NotDetermined)}",
+        after is null ? "info" : KindFor(after));
 
     /// <summary>Traduce el id técnico de una sonda a algo que se pueda leer en el reporte.</summary>
     private static string DescribeProbe(string probeId) => probeId switch

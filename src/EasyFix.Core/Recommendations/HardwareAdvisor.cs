@@ -248,8 +248,10 @@ public sealed class HardwareAdvisor
 
     private void AddSlowDisk(SystemSnapshot s, List<Recommendation> result)
     {
-        // Si es mecánico ya se recomendó el SSD; repetirlo con otra etiqueta es ruido.
-        if (s.PrimaryDiskMedia == DiskMedia.Hdd ||
+        // Si es mecánico ya se recomendó el SSD; repetirlo con otra etiqueta es ruido. Y si el tipo
+        // no se identificó, no se puede afirmar «lento para ser un SSD»: el texto sería una mentira
+        // en un HDD sin identificar.
+        if (s.IsSsd != true ||
             s.DiskLatencyMs is not double latency ||
             latency <= _thresholds.DiskLatencyWarnMs)
         {
@@ -308,20 +310,61 @@ public sealed class HardwareAdvisor
 
     private static void AddConflictingAntivirus(SystemSnapshot s, List<Recommendation> result)
     {
-        if (s.ActiveAntivirusCount < 2)
+        // null = no medido: no se afirma conflicto ni ausencia de conflicto.
+        if (s.ActiveAntivirusCount is not int count || count < 2)
         {
             return;
+        }
+
+        var detail = new System.Text.StringBuilder();
+        detail.Append($"Se detectaron {count} antivirus activos");
+
+        IReadOnlyList<string> names = s.ActiveAntivirusNames ?? Array.Empty<string>();
+        if (names.Count > 0)
+        {
+            detail.Append($": {string.Join(", ", names)}");
+        }
+
+        detail.Append(
+            ". Dos antivirus escanean los mismos archivos y se estorban entre sí: es una de las " +
+            "causas más frecuentes de lentitud severa, y encima protegen peor que uno solo. ");
+
+        // La regla del técnico: sin licencia de pago vigente, queda solo el Defender de Windows.
+        // La licencia no se puede medir desde acá, así que se pregunta en vez de afirmarse.
+        bool defenderPresent = names.Any(IsWindowsDefender);
+        string? thirdParty = names.Where(n => !IsWindowsDefender(n)).ToList() is { Count: > 0 } tp
+            ? string.Join(", ", tp)
+            : null;
+
+        if (defenderPresent && thirdParty is not null)
+        {
+            detail.Append(
+                $"Si no hay una licencia de pago vigente de {thirdParty}, desinstalalo y dejá solo " +
+                "Microsoft Defender: viene con Windows, no vence y para uso normal protege bien. " +
+                "Si la licencia existe y está activa, dejá ese y verificá que Defender se haya " +
+                "apagado solo (lo normal es que ceda al de terceros).");
+        }
+        else
+        {
+            detail.Append("Dejá uno solo: el que tenga licencia vigente, o Microsoft Defender si ninguno la tiene.");
         }
 
         result.Add(new Recommendation(
             "antivirus.conflict",
             RecommendationPriority.TopImpact,
             "Hay más de un antivirus activo",
-            $"Se detectaron {s.ActiveAntivirusCount} antivirus activos. Dos antivirus escanean los " +
-            "mismos archivos y se estorban entre sí: es una de las causas más frecuentes de lentitud " +
-            "severa, y encima protegen peor que uno solo. Hay que dejar uno.",
-            new Metric("Antivirus activos", s.ActiveAntivirusCount.ToString(Es))));
+            detail.ToString(),
+            new Metric("Antivirus activos", names.Count > 0 ? string.Join(" + ", names) : count.ToString(Es))));
     }
+
+    /// <summary>
+    /// Heurística por nombre: SecurityCenter2 reporta Defender como «Windows Defender» o «Microsoft
+    /// Defender Antivirus» según versión. No hay ID estable documentado, así que se va por nombre.
+    /// </summary>
+    private static bool IsWindowsDefender(string name) =>
+        name.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
+        (name.Contains("Windows", StringComparison.OrdinalIgnoreCase) ||
+         name.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
 
     // ---- Helpers ----------------------------------------------------------------------------
 

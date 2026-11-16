@@ -109,11 +109,16 @@ public sealed class FixRunnerTests
         }
     }
 
+    // Los contextos van explícitos: desde v0.9.0 un campo sin setear significa «no medido», y el
+    // runner falla cerrado con «no medido» (BitLocker desconocido bloquea, dominio desconocido
+    // restringe). Un equipo sano de prueba tiene todo MEDIDO y en verde.
     private static readonly SystemSnapshot HealthyPc = new()
     {
         PrimaryDiskMedia = DiskMedia.Ssd,
         PrimaryDiskHealth = DiskHealth.Healthy,
         TotalRamGb = 16,
+        BitLockerActive = false,
+        IsDomainJoined = false,
     };
 
     private static (FixRunner Runner, FakeRestorePoints Points, FakeBitLocker BitLocker) Build(

@@ -190,8 +190,9 @@ public sealed class StartupClassifier
             }
 
             // Teams personal se puede desactivar; Teams corporativo no. En equipo de dominio la
-            // entrada se cae a Capa 3 en vez de matchear.
-            if (entry.OnlyIfNotDomainJoined && context.IsDomainJoined)
+            // entrada se cae a Capa 3 en vez de matchear. Dominio sin comprobar cuenta como dominio:
+            // fallar cerrado.
+            if (entry.OnlyIfNotDomainJoined && context.IsDomainJoined != false)
             {
                 continue;
             }

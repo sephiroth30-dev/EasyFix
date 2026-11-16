@@ -259,7 +259,17 @@ public sealed class FixRunner
         // ---- Compuerta 3: BitLocker ---------------------------------------------------------
         bool bootFixesAllowed = true;
 
-        if (snapshot.BitLockerActive)
+        // null = la sonda no pudo mirar. Se trata igual que BitLocker activo: fallar cerrado. Si
+        // BitLocker estuviera activo y un fix de disco corre sin suspenderlo, el cliente puede quedar
+        // fuera de su propio equipo — el peor daño que esta app puede causar.
+        if (snapshot.BitLockerActive is null)
+        {
+            bootFixesAllowed = false;
+            Report("Preparando",
+                "No se pudo comprobar BitLocker: por precaución se saltean las reparaciones de " +
+                "disco y arranque.");
+        }
+        else if (snapshot.BitLockerActive == true)
         {
             if (!bitLockerKeyConfirmed)
             {
@@ -402,13 +412,16 @@ public sealed class FixRunner
 
         // En dominio, solo pasa lo que no deja rastro en la configuración gestionada. Un fix
         // reversible que toca configuración sería revertido por la GPO igual: parece funcionar y se
-        // deshace solo.
-        if (snapshot.IsDomainJoined && fix.Tier == FixTier.RequiresApproval)
+        // deshace solo. Dominio sin comprobar (null) bloquea igual: fallar cerrado.
+        if (snapshot.IsDomainJoined != false && fix.Tier == FixTier.RequiresApproval)
         {
             return FixApplicability.No(
                 FixBlockReason.DomainManaged,
-                "El equipo está en un dominio: las políticas de la empresa revertirían este cambio, " +
-                "y desactivar componentes corporativos lo rompe para el área de sistemas.");
+                snapshot.IsDomainJoined == true
+                    ? "El equipo está en un dominio: las políticas de la empresa revertirían este " +
+                      "cambio, y desactivar componentes corporativos lo rompe para el área de sistemas."
+                    : "No se pudo comprobar si el equipo está en un dominio. Si lo estuviera, las " +
+                      "políticas de la empresa revertirían este cambio, así que no se aplica sin ese dato.");
         }
 
         return null;

@@ -12,6 +12,7 @@ public sealed record EasyFixOptions
     public ThresholdOptions Thresholds { get; init; } = new();
     public ClassifierOptions Classifier { get; init; } = new();
     public BloatwareOptions Bloatware { get; init; } = new();
+    public ReputationOptions Reputation { get; init; } = new();
     public ServiceOptions Services { get; init; } = new();
     public NetworkOptions Network { get; init; } = new();
     public IReadOnlyList<WingetPackage> WingetPackages { get; init; } = Array.Empty<WingetPackage>();
@@ -57,6 +58,15 @@ public sealed record ThresholdOptions
     public int BatteryWearPercent { get; init; } = 30;
     public int CpuThrottleFrequencyPercent { get; init; } = 70;
     public int QuickScanBudgetSeconds { get; init; } = 10;
+
+    /// <summary>Tope de retraso de los programas de inicio para que el checklist lo dé por sano.</summary>
+    public int StartupDelayWarnSeconds { get; init; } = 10;
+
+    /// <summary>Tope de cantidad de programas de inicio cuando el retraso no se pudo medir.</summary>
+    public int StartupHeavyCount { get; init; } = 10;
+
+    /// <summary>Tope del arranque medido (evento 100) para el checklist. Amplio a propósito: cubre HDD sanos.</summary>
+    public int SlowBootSeconds { get; init; } = 90;
     public int PerCheckTimeoutSeconds { get; init; } = 5;
     public int MaxConcurrentChecks { get; init; } = 8;
     public int ExternalProcessTimeoutMinutes { get; init; } = 30;
@@ -137,6 +147,43 @@ public sealed record BloatwareCandidate
 {
     public string Publisher { get; init; } = string.Empty;
     public string Product { get; init; } = string.Empty;
+    public string? Reason { get; init; }
+}
+
+/// <summary>
+/// Catálogo de programas con mala reputación, para cruzar contra lo instalado.
+/// </summary>
+/// <remarks>
+/// Curado de conocimiento público (sanciones FTC, listados de PUP de antivirus serios) y del
+/// material de referencia de winutil/Win11Debloat. Vive en configuración para poder agregar una
+/// entrada en el equipo del cliente sin recompilar. Las herramientas legítimas de trabajo (acceso
+/// remoto, VPN, antivirus de pago) NO van acá: el catálogo es de basura conocida, no de software
+/// que a alguien no le gusta.
+/// </remarks>
+public sealed record ReputationOptions
+{
+    public IReadOnlyList<ReputationCatalogEntry> KnownBad { get; init; } =
+        Array.Empty<ReputationCatalogEntry>();
+}
+
+public sealed record ReputationCatalogEntry
+{
+    /// <summary>Fragmento del <c>DisplayName</c>. Comparación contains, sin mayúsculas.</summary>
+    public string Product { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Fragmento del <c>Publisher</c>. Si está declarado, el match lo exige también — identificar
+    /// por (publisher, producto), no por glob de nombre. Vacío = el publisher varía demasiado.
+    /// </summary>
+    public string Publisher { get; init; } = string.Empty;
+
+    /// <summary>Categoría en español para el reporte: «optimizador falso», «adware», etc.</summary>
+    public string Category { get; init; } = string.Empty;
+
+    /// <summary><c>confirmed</c> o <c>doubtful</c>. Cualquier otra cosa degrada a dudoso.</summary>
+    public string Verdict { get; init; } = "doubtful";
+
+    /// <summary>De dónde sale la condena, para quien audite la lista.</summary>
     public string? Reason { get; init; }
 }
 

@@ -17,6 +17,87 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.0] — 2026-11-15
+
+El estado del equipo se vuelve **verificable**: la lista de condiciones evaluada antes y después de
+reparar, en dos columnas. Y se cierra la deuda de diseño de las sospechas 1–5 del plan: **el snapshot
+ya distingue «no medido» de un valor** en todos los campos.
+
+### Agregado
+
+- **Lista de verificación antes/después** (`Core/Verification/`): 12 condiciones puras sobre el
+  snapshot (salud de disco, espacio, memoria, un solo antivirus, dispositivos, pantallazos, errores
+  de disco, inicio liviano, tiempo de arranque, internet, DISM/SFC y chkdsk como pendientes del
+  escaneo profundo). Tres estados: verde, rojo y **no determinado** — una sonda caída jamás sale
+  verde. Tras «Mejorar rendimiento» o «Reparar errores», la app **vuelve a medir todo** y muestra
+  cada condición como `antes ✗ → después ✓`. Las que persisten en rojo se muestran con su motivo, y
+  si es hardware, se dice.
+- **Reputación de programas instalados** (`Core/Reputation/` + `InstalledProgramsReader`): se leen
+  las claves `Uninstall` (nunca `Win32_Product`) y se cruzan contra un catálogo de ~50 PUPs
+  documentados en `appsettings.json` (scareware, optimizadores falsos, driver updaters fraudulentos,
+  secuestradores de navegador, bundlers). Match por **(publisher, producto)**, no por nombre solo.
+  Dos niveles: «confirmado-dañino» (Warning) y «dudoso» (Info). **EasyFix no desinstala programas**:
+  lista, con tamaño y categoría, para que el técnico decida. Catálogo curado con referencia de
+  winutil y Win11Debloat.
+- **Antivirus con nombres**: `SecurityCenter2` ahora reporta cuáles, no solo cuántos. Con más de uno
+  activo, la recomendación nombra al de terceros y aplica la regla del técnico: sin licencia de pago
+  vigente, queda solo Microsoft Defender. La licencia no se puede medir → se pregunta, no se afirma.
+- **Sonda de batería** (`battery`): presencia por `Win32_Battery`, desgaste por
+  `BatteryStaticData.DesignedCapacity` vs `BatteryFullChargedCapacity.FullChargedCapacity` en
+  `root\wmi`. Antes `bateria.desgaste = no medido` mentía por omisión: no existía ninguna sonda.
+- **Predicción de saturación** (`SaturationAdvisor`): memoria en franja de alerta (70–85 %) y
+  proyección de llenado de disco — la única estimación de la app, con el supuesto (~2 GB/mes de
+  updates) escrito dentro del texto.
+- **Software según la máquina** (`SoftwareSelectionAdvisor`): con RAM < 8 GB, disco mecánico o
+  batería presente, el reporte dice qué criterio usar al instalar (Defender solo, evitar residentes,
+  plan equilibrado en laptop). Solo con datos medidos.
+
+### Corregido
+
+- **`disco.salud = Healthy` sin medir** (sospecha #1 del plan): un SMART negativo ascendía
+  `Unknown` a `Healthy`, así que un timeout de `disk.physical` terminaba declarando salud. SMART
+  ahora viaja en su propio campo `SmartPredictsFailure`.
+- **Bools y contadores que afirmaban en timeout** (sospechas 3–5): `IsDomainJoined`,
+  `BitLockerActive`, `HasPrinters`, `HasBluetoothAdapter`, `ActiveAntivirusCount` pasaron a
+  nullable. La regla de consumo es **fallar cerrado**: BitLocker desconocido bloquea como si
+  estuviera activo; dominio desconocido restringe; impresora desconocida protege el Spooler.
+- **`disco.tipo = Unknown` ya no es «no es SSD»**: `IsSsd` es `bool?`. Un disco sin identificar ya
+  no suprime la recomendación de SSD ni habilita mal la condición de SysMain.
+- **`SlowProbes` ampliado**: `disk.smart`, `boot`, `bitlocker`, `antivirus` y `battery` con 20 s
+  (sospecha #6; presupuesto por analogía con el Pentium G2020, sin verificar en equipo lento).
+
+### Corregido en la revisión adversarial (ronda 2, antes de publicar)
+
+- **Event Log ilegible producía checklist verde** (crítico): la sonda de inestabilidad traga
+  excepciones por bloque a propósito, así que «lista vacía» no distinguía «cero pantallazos» de «no
+  se pudo leer». `CrashData` lleva ahora flags de lectura por bloque y el checklist degrada esas
+  condiciones a «no determinado».
+- **BitLocker `ProtectionStatus = 2` se leía como «sin BitLocker»** — la única falla-abierta que
+  quedaba en la compuerta del peor daño. Ahora 2 → null → bloquea.
+- **Batería con firmware incoherente afirmaba «0 % de desgaste»** — ahora queda sin medir; y las dos
+  clases WMI se correlacionan por `InstanceName` (laptops con dos baterías), reportando la más
+  desgastada.
+- **`HasBattery` ya no afirma «es una laptop»** (un UPS también expone batería); el texto dice
+  «batería presente».
+- **Carrera del `SystemProbe` singleton**: una sonda abandonada por timeout podía pisar los datos de
+  la corrida siguiente (el antes/después se evaluaba con datos viejos). El estado ahora vive en una
+  sesión por llamada.
+- Volcados de memoria acotados a la ventana analizada; entradas de catálogo menores a 4 caracteres
+  se ignoran (editable a mano → contains corto condenaría de más); regresiones del checklist
+  (verde→rojo) se cuentan aparte y disparan aviso; `SystemComponent` como texto `"1"` también filtra.
+
+### Sin verificar en Windows (deuda que esta versión agrega)
+
+- La sonda de batería completa (contratos WMI de `root\wmi`).
+- `InstalledProgramsReader` (nombres de valor de las claves `Uninstall`).
+- El flujo UI del checklist y la re-medición tras reparar.
+- Los publishers del catálogo de reputación contra registros reales.
+
+**Probado:** 498 tests en macOS (496 + 2 omitidos que exigen Windows). Nada de esta versión corrió
+en un Windows real todavía — ver `docs/PRUEBAS.md`.
+
+---
+
 ## [0.8.0] — 2026-08-31
 
 Detección de red. Cierra el «simplemente no instaló nada» de los logs del 2026-08-29, cuya causa era

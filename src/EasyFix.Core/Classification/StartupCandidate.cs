@@ -67,7 +67,11 @@ public sealed record StartupCandidate(
 /// </param>
 /// <param name="IsSsd">Condiciona la oferta de SysMain: en HDD, Superfetch AYUDA.</param>
 /// <param name="TotalRamGb">Idem.</param>
+/// <remarks>
+/// Los dos primeros son nullable: <c>null</c> = la sonda no pudo medir. Quien consume decide, y la
+/// regla es fallar cerrado — un dominio sin comprobar se trata como dominio presente.
+/// </remarks>
 public sealed record SystemContext(
-    bool IsDomainJoined,
-    bool IsSsd,
+    bool? IsDomainJoined,
+    bool? IsSsd,
     double TotalRamGb);

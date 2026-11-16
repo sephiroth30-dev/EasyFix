@@ -77,6 +77,33 @@ anteriores el comando no existe y devuelve `INVALID_CL_ARGUMENTS` — es lo que 
 
 ---
 
+## Nivel 1.2 — Lo nuevo de v0.9.0 · SEGURO, no modifica nada
+
+Mismo «Analizar el equipo» del Nivel 1; esto agrega qué mirar de los módulos nuevos.
+
+- [ ] **Sección «ESTADO DEL EQUIPO»** en el reporte: 12 condiciones con ✓ / ✗ / —. Ninguna
+      condición puede estar en ✓ si su dato salió en «NO SE PUDO DETERMINAR». Las dos de escaneo
+      profundo (DISM/SFC y chkdsk) salen «—» siempre: es lo esperado.
+- [ ] **Programas con mala reputación**: si el equipo tiene algún PUP conocido (Driver Booster,
+      Web Companion, etc.), ¿aparece con publisher, categoría y tamaño? Y al revés, **lo legítimo
+      no puede salir condenado** — TeamViewer/AnyDesk/antivirus de pago jamás deben aparecer.
+      Si hay un falso positivo, anotar el `DisplayName` y `Publisher` exactos del registro.
+- [ ] **Antivirus por nombre**: con dos antivirus activos, el hallazgo debe nombrarlos y
+      recomendar dejar solo Defender si no hay licencia paga.
+- [ ] **Batería** (en laptop): `bateria.presente = True` y un desgaste plausible en el log.
+      En desktop: `False` y sin desgaste. Contratos de `root\wmi` nunca probados — si salen «no
+      medido» en una laptop, es un contrato equivocado y hay que anotar qué devuelve
+      `Get-CimInstance -Namespace root/wmi -ClassName BatteryFullChargedCapacity` en PowerShell.
+- [ ] **En el log** (`easyfix-<fecha>.log`): el volcado del snapshot ahora distingue `no medido` de
+      `False`/`0` en bitlocker, dominio, impresoras, bluetooth, antivirus, smart y batería.
+
+Después de «Mejorar rendimiento» (Nivel 2.5), además:
+
+- [ ] **«ESTADO DEL EQUIPO — ANTES Y DESPUÉS»** aparece en el resultado, con `antes ✗ → después ✓`
+      en lo que se arregló. La re-medición corre sola al terminar; tarda ~10-15 s más.
+- [ ] Lo que dependa de reiniciar (arranque, inicio liviano) debe salir IGUAL en las dos columnas —
+      si «mejora» sin reiniciar, es un dato inventado y hay que reportarlo como bug.
+
 ## Nivel 1.5 — Sin internet · SEGURO, no modifica nada
 
 **La prueba más importante de v0.8.0**, y la única que reproduce a propósito el fallo del

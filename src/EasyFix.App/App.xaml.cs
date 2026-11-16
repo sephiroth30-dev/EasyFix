@@ -100,6 +100,7 @@ public partial class App : Application
         // La compuerta de red. Sin esto, un equipo sin internet producía tres diagnósticos falsos
         // seguidos culpando al catálogo de winget. Ver WingetService.InstallAsync.
         services.AddSingleton<IConnectivityCheck, HttpConnectivityCheck>();
+        services.AddSingleton<IInstalledProgramsReader, InstalledProgramsReader>();
         services.AddSingleton<WingetService>();
         services.AddSingleton<ServiceConditionEvaluator>();
 

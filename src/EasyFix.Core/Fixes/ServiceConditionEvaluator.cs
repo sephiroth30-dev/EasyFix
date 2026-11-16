@@ -39,13 +39,21 @@ public sealed class ServiceConditionEvaluator
 
         return candidate.OnlyIf switch
         {
-            NoPrintersInstalled => snapshot.HasPrinters
-                ? new ServiceOffer(false, "El equipo tiene impresoras instaladas: desactivarlo rompería la impresión.")
-                : new ServiceOffer(true, "No se detectaron impresoras."),
+            // «No se pudo mirar» bloquea igual que «sí hay»: si hubiera impresora y la sonda dio
+            // timeout, desactivar el Spooler rompería la impresión. Solo un false medido abre.
+            NoPrintersInstalled => snapshot.HasPrinters switch
+            {
+                true => new ServiceOffer(false, "El equipo tiene impresoras instaladas: desactivarlo rompería la impresión."),
+                false => new ServiceOffer(true, "No se detectaron impresoras."),
+                null => new ServiceOffer(false, "No se pudo comprobar si hay impresoras: sin ese dato no se ofrece."),
+            },
 
-            NoBluetoothAdapter => snapshot.HasBluetoothAdapter
-                ? new ServiceOffer(false, "El equipo tiene Bluetooth: desactivarlo dejaría de funcionar.")
-                : new ServiceOffer(true, "No se detectó adaptador Bluetooth."),
+            NoBluetoothAdapter => snapshot.HasBluetoothAdapter switch
+            {
+                true => new ServiceOffer(false, "El equipo tiene Bluetooth: desactivarlo dejaría de funcionar."),
+                false => new ServiceOffer(true, "No se detectó adaptador Bluetooth."),
+                null => new ServiceOffer(false, "No se pudo comprobar si hay Bluetooth: sin ese dato no se ofrece."),
+            },
 
             SsdAndRamAtLeast8Gb => EvaluateSysMainCondition(snapshot),
 
@@ -81,7 +89,7 @@ public sealed class ServiceConditionEvaluator
                 "servicio ayuda, así que no se ofrece sin ese dato.");
         }
 
-        if (!snapshot.IsSsd)
+        if (snapshot.IsSsd != true)
         {
             return new ServiceOffer(
                 false,

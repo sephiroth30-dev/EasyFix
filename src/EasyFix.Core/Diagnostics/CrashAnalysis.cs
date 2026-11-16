@@ -168,6 +168,21 @@ public sealed record CrashData(
         Array.Empty<InstalledUpdate>(), Array.Empty<string>(), 30);
 
     public bool HasCrashes => Crashes.Count > 0 || MinidumpCount > 0;
+
+    // La sonda de inestabilidad traga excepciones por bloque a propósito (en un equipo roto es
+    // normal que un registro esté corrupto), así que «lista vacía» NO distingue «cero problemas» de
+    // «no se pudo leer». Estos flags llevan esa distinción: false = la lectura de ese bloque no
+    // terminó, y quien consuma el dato tiene que degradarlo a «no determinado», jamás a verde.
+    // Default true para que un CrashData construido a mano (tests, Empty) signifique «medido limpio».
+
+    /// <summary><c>false</c> = el registro de pantallazos o la carpeta de volcados no se pudo leer.</summary>
+    public bool CrashLogRead { get; init; } = true;
+
+    /// <summary><c>false</c> = los eventos de disco/Ntfs/volmgr no se pudieron leer completos.</summary>
+    public bool DiskEventsRead { get; init; } = true;
+
+    /// <summary><c>false</c> = la enumeración de dispositivos con problema no terminó.</summary>
+    public bool DevicesRead { get; init; } = true;
 }
 
 /// <param name="Data">Los datos crudos.</param>

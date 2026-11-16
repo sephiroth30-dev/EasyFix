@@ -96,7 +96,9 @@ public sealed record JournalHeader
     public long? RestorePointSequence { get; init; }
 
     public bool BitLockerWasSuspended { get; init; }
-    public bool DomainJoined { get; init; }
+
+    /// <summary><c>null</c> = la sonda no pudo medirlo. El journal registra hechos, no supone.</summary>
+    public bool? DomainJoined { get; init; }
     public string? MachineName { get; init; }
     public string? OsVersion { get; init; }
 
