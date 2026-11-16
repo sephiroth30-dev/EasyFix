@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Management;
 using System.Runtime.Versioning;
 using System.Xml.Linq;
+using EasyFix.Core.Classification;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
@@ -116,11 +117,30 @@ public sealed class SystemProbe
 
     private const string PerformanceLog = "Microsoft-Windows-Diagnostics-Performance/Operational";
 
-    private static readonly string[] RunKeys =
+    /// <summary>
+    /// Las claves <c>Run</c> y dónde vive el flag de <c>StartupApproved</c> de cada una.
+    /// </summary>
+    /// <remarks>
+    /// Mismo mapeo que <see cref="Classification.StartupEntryReader"/> — tiene que ser el mismo,
+    /// porque es el fix el que escribe ahí y esta sonda la que cuenta. Antes esta sonda solo leía
+    /// <c>Run</c> sin mirar el flag: un programa recién desactivado seguía contando como "habilitado"
+    /// porque <c>StartupDisableFix</c> nunca borra la clave <c>Run</c> (si la borrara, Windows no lo
+    /// dejaría re-habilitar desde el Administrador de tareas). El resultado era un checklist que
+    /// mostraba el mismo número antes y después de desactivar programas.
+    /// </remarks>
+    private static readonly (RegistryKey Hive, string RunPath, string ApprovalPath)[] RunKeySources =
     {
-        @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run",
-        @"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run",
-        @"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+        (Registry.CurrentUser,
+         @"Software\Microsoft\Windows\CurrentVersion\Run",
+         @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"),
+
+        (Registry.LocalMachine,
+         @"Software\Microsoft\Windows\CurrentVersion\Run",
+         @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"),
+
+        (Registry.LocalMachine,
+         @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+         @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"),
     };
 
     /// <summary>
@@ -552,12 +572,29 @@ public sealed class SystemProbe
     {
         int enabled = 0;
 
-        foreach (string key in RunKeys)
+        foreach ((RegistryKey hive, string runPath, string approvalPath) in RunKeySources)
         {
-            enabled += OpenNames(key)?.Length ?? 0;
+            using RegistryKey? runKey = hive.OpenSubKey(runPath);
+            if (runKey is null)
+            {
+                continue;
+            }
+
+            using RegistryKey? approvalKey = hive.OpenSubKey(approvalPath);
+
+            foreach (string name in runKey.GetValueNames())
+            {
+                // Solo cuenta si SIGUE habilitada: StartupDisableFix no borra la clave Run, escribe
+                // el flag acá. Sin esta comprobación, un programa recién desactivado seguía sumando.
+                if (StartupApproval.IsEnabled(approvalKey?.GetValue(name) as byte[]))
+                {
+                    enabled++;
+                }
+            }
         }
 
-        // Carpetas de inicio: usuario actual y todos los usuarios.
+        // Carpetas de inicio: usuario actual y todos los usuarios. Ningún fix las toca todavía
+        // (StartupEntryReader solo lee las claves Run), así que se cuentan todas sin excepción.
         foreach (Environment.SpecialFolder folder in new[]
                  { Environment.SpecialFolder.Startup, Environment.SpecialFolder.CommonStartup })
         {
@@ -570,22 +607,6 @@ public sealed class SystemProbe
         }
 
         return s => s with { EnabledStartupEntryCount = enabled };
-
-        static string[]? OpenNames(string fullKey)
-        {
-            int slash = fullKey.IndexOf('\\', StringComparison.Ordinal);
-            string hive = fullKey[..slash];
-            string sub = fullKey[(slash + 1)..];
-
-            using RegistryKey? root = hive switch
-            {
-                "HKEY_CURRENT_USER" => Registry.CurrentUser.OpenSubKey(sub),
-                "HKEY_LOCAL_MACHINE" => Registry.LocalMachine.OpenSubKey(sub),
-                _ => null,
-            };
-
-            return root?.GetValueNames();
-        }
     }
 
     /// <summary>

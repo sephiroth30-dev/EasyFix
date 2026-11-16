@@ -6,6 +6,32 @@ using Microsoft.Win32;
 
 namespace EasyFix.Core.Classification;
 
+/// <summary>
+/// Interpreta el flag binario de <c>StartupApproved</c> — el mecanismo que usa el Administrador de
+/// tareas para habilitar y deshabilitar programas de arranque sin tocar la clave <c>Run</c>.
+/// </summary>
+/// <remarks>
+/// Única fuente de esta regla. Antes vivía duplicada en <see cref="StartupEntry.IsEnabled"/> y, sin
+/// que nadie la copiara, el conteo de <c>SystemProbe</c> directamente no la conocía: contaba
+/// entradas en <c>Run</c> sin mirar si <c>StartupDisableFix</c> las había desactivado, así que el
+/// checklist mostraba el mismo número de "programas de inicio" antes y después de desactivarlos —
+/// la causa de que el técnico sintiera que la herramienta "no hizo nada".
+/// </remarks>
+public static class StartupApproval
+{
+    /// <summary>
+    /// <c>true</c> si el flag representa una entrada habilitada.
+    /// </summary>
+    /// <remarks>
+    /// El primer byte manda: <c>0x02</c> y <c>0x06</c> son habilitado, <c>0x03</c> es deshabilitado.
+    /// Si el valor no existe, la entrada está habilitada — es el estado por defecto. Un valor con
+    /// basura se trata como habilitado: falla del lado seguro, porque lo peor que puede pasar es
+    /// evaluarla de más, no saltearla creyendo que ya está desactivada.
+    /// </remarks>
+    public static bool IsEnabled(byte[]? flag) =>
+        flag is null || flag.Length == 0 || flag[0] != 0x03;
+}
+
 /// <summary>Una entrada de inicio con lo que hace falta para desactivarla y para revertirlo.</summary>
 /// <param name="Candidate">Lo que necesita el clasificador.</param>
 /// <param name="ApprovalKeyPath">Clave de <c>StartupApproved</c> donde vive su flag.</param>
@@ -17,15 +43,7 @@ public sealed record StartupEntry(
     string ValueName,
     byte[]? CurrentFlag)
 {
-    /// <summary>
-    /// <c>true</c> si está habilitada.
-    /// </summary>
-    /// <remarks>
-    /// El primer byte del flag manda: <c>0x02</c> y <c>0x06</c> son habilitado, <c>0x03</c> es
-    /// deshabilitado. Si el valor no existe, la entrada está habilitada — es el estado por defecto.
-    /// </remarks>
-    public bool IsEnabled =>
-        CurrentFlag is null || CurrentFlag.Length == 0 || (CurrentFlag[0] != 0x03);
+    public bool IsEnabled => StartupApproval.IsEnabled(CurrentFlag);
 }
 
 /// <summary>

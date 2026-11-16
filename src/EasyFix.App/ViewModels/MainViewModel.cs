@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EasyFix.Core.Apps;
+using EasyFix.Core.Classification;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Diagnostics;
 using EasyFix.Core.Fixes;
@@ -45,6 +46,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly SaturationAdvisor _saturation;
     private readonly SoftwareSelectionAdvisor _softwareSelection;
     private readonly IInstalledProgramsReader _programs;
+    private readonly StartupEntryReader _startupReader;
+    private readonly StartupClassifier _startupClassifier;
     private readonly WingetService _winget;
     private readonly IConnectivityCheck _connectivity;
     private readonly FixRunner _fixRunner;
@@ -70,6 +73,8 @@ public sealed partial class MainViewModel : ObservableObject
         SystemProbe probe,
         HardwareAdvisor advisor,
         IInstalledProgramsReader programs,
+        StartupEntryReader startupReader,
+        StartupClassifier startupClassifier,
         WingetService winget,
         IConnectivityCheck connectivity,
         FixRunner fixRunner,
@@ -82,6 +87,8 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(advisor);
         ArgumentNullException.ThrowIfNull(programs);
+        ArgumentNullException.ThrowIfNull(startupReader);
+        ArgumentNullException.ThrowIfNull(startupClassifier);
         ArgumentNullException.ThrowIfNull(winget);
         ArgumentNullException.ThrowIfNull(connectivity);
         ArgumentNullException.ThrowIfNull(fixRunner);
@@ -96,6 +103,8 @@ public sealed partial class MainViewModel : ObservableObject
         _saturation = new SaturationAdvisor(options.Thresholds);
         _softwareSelection = new SoftwareSelectionAdvisor(options.Thresholds);
         _programs = programs;
+        _startupReader = startupReader;
+        _startupClassifier = startupClassifier;
         _winget = winget;
         _connectivity = connectivity;
         _fixRunner = fixRunner;
@@ -558,11 +567,41 @@ public sealed partial class MainViewModel : ObservableObject
                 },
                 _cts!.Token);
 
+            // Leer las entradas de inicio también en paralelo: implica verificar firmas
+            // (X509Chain.Build, lo más lento de la app), así que va a un hilo del pool igual que el
+            // fix real. La clasificación en sí se hace DESPUÉS, una vez que hay snapshot —necesita
+            // el SystemContext real (dominio, SSD, RAM)—, pero es instantánea: la parte lenta es
+            // esta lectura, no la clasificación.
+            Task<IReadOnlyList<StartupEntry>?> startupEntriesTask = Task.Run(
+                IReadOnlyList<StartupEntry>? () =>
+                {
+                    try
+                    {
+                        return _startupReader.Read();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "No se pudo leer los programas de inicio para la vista previa.");
+                        return null;
+                    }
+                },
+                _cts!.Token);
+
             ProbeResult result = await _probe.ProbeAsync(progress, _cts!.Token);
 
             ConnectivityResult network = await networkTask;
 
             IReadOnlyList<InstalledProgram>? installedPrograms = await programsTask;
+
+            StartupPreview? startupPreview = null;
+            if (await startupEntriesTask is { } startupEntries)
+            {
+                startupPreview = StartupPreview.Build(
+                    startupEntries,
+                    _startupClassifier,
+                    new SystemContext(result.Snapshot.IsDomainJoined, result.Snapshot.IsSsd,
+                        result.Snapshot.TotalRamGb ?? 0));
+            }
 
             // Que el reporte lo diga ANTES de que el técnico apriete «Instalar programas». En el
             // equipo del 2026-08-29 se enteró al revés: cuatro fallos, y con el motivo equivocado.
@@ -601,7 +640,7 @@ public sealed partial class MainViewModel : ObservableObject
             _checklistBefore = ChecklistEvaluator.Evaluate(
                 result.Snapshot, result.Crash, result.Failures, _options.Thresholds);
 
-            BuildReport(result, _lastCrash, installedPrograms);
+            BuildReport(result, _lastCrash, installedPrograms, startupPreview);
             CurrentScreen = Screen.Report;
         }
         catch (OperationCanceledException)
@@ -619,7 +658,8 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     private void BuildReport(
-        ProbeResult result, CrashAnalysis crash, IReadOnlyList<InstalledProgram>? installedPrograms)
+        ProbeResult result, CrashAnalysis crash, IReadOnlyList<InstalledProgram>? installedPrograms,
+        StartupPreview? startupPreview)
     {
         SystemSnapshot snapshot = result.Snapshot;
 
@@ -644,6 +684,15 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (Finding finding in SoftwareFindings.Evaluate(snapshot, _options.Thresholds))
         {
             SoftwareRows.Add(ToRow(finding));
+        }
+
+        // Qué va a hacer EXACTAMENTE «Mejorar rendimiento» con el inicio, con nombres. Sin esto el
+        // técnico lo descubre recién al apretar el botón — y si la lista blanca no tiene match en
+        // este equipo (común: software de oficina que no es Spotify/Discord/Adobe), el botón hace
+        // cero y parece que la herramienta no funcionó.
+        if (startupPreview is { EnabledTotal: > 0 } preview)
+        {
+            SoftwareRows.Add(ToRow(ToStartupPreviewFinding(preview)));
         }
 
         // Saturación próxima: alerta temprana con lo medido hoy (y una única estimación declarada).
@@ -1120,6 +1169,71 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
+    }
+
+    /// <summary>
+    /// Traduce la vista previa de inicio a un hallazgo concreto, con nombres. Es la respuesta a
+    /// «¿qué va a hacer el botón?» antes de apretarlo.
+    /// </summary>
+    private static Finding ToStartupPreviewFinding(StartupPreview preview)
+    {
+        var metrics = new List<Metric>();
+        var parts = new List<string>();
+
+        // El dominio bloquea el fix ENTERO antes de clasificar nada (ver StartupPreview.Build):
+        // si pasó esto, ninguna de las otras tres listas tiene nada, así que se corta acá con el
+        // motivo real en vez de mostrar "0 se desactivan solos" sin explicación.
+        if (preview.BlockedByDomain.Count > 0)
+        {
+            return new Finding(
+                "startup.preview",
+                Severity.Info,
+                "«Mejorar rendimiento» no va a tocar el inicio en este equipo",
+                $"Hay {preview.BlockedByDomain.Count} programa(s) de inicio que en un equipo sin " +
+                "dominio se podrían evaluar para desactivar, pero acá no: el equipo está en un " +
+                "dominio (o no se pudo comprobar), y en ese caso EasyFix no toca los programas de " +
+                "inicio aunque estén en la lista de seguros — las políticas de la empresa los " +
+                "reescribirían en la próxima actualización de directivas.",
+                new[] { new Metric("Afectados", string.Join(", ", preview.BlockedByDomain)) });
+        }
+
+        if (preview.AutoDisable.Count > 0)
+        {
+            metrics.Add(new Metric("Se desactivan solos", string.Join(", ", preview.AutoDisable)));
+            parts.Add(
+                $"«Mejorar rendimiento» va a intentar desactivar {preview.AutoDisable.Count} sin " +
+                $"preguntar nada más: {string.Join(", ", preview.AutoDisable)}.");
+        }
+
+        if (preview.NeedsApproval.Count > 0)
+        {
+            metrics.Add(new Metric("Piden tu confirmación", string.Join(", ", preview.NeedsApproval)));
+            parts.Add(
+                $"{preview.NeedsApproval.Count} más podrían desactivarse pero no están en la lista " +
+                $"de seguros, así que «Mejorar rendimiento» NO los toca: {string.Join(", ", preview.NeedsApproval)}. " +
+                "Si los conocés, podés desactivarlos ahora mismo desde el Administrador de tareas → pestaña Inicio.");
+        }
+
+        if (preview.Blocked.Count > 0)
+        {
+            parts.Add(
+                $"{preview.Blocked.Count} son intocables (seguridad, driver o componente protegido): " +
+                $"{string.Join(", ", preview.Blocked)}.");
+        }
+
+        parts.Add(
+            "Esto cubre los programas que arrancan por el registro de Windows (Run); los accesos " +
+            "directos en la carpeta de inicio todavía no los toca ningún fix, aunque el diagnóstico " +
+            "los cuente aparte.");
+
+        return new Finding(
+            "startup.preview",
+            Severity.Info,
+            preview.AutoDisable.Count > 0
+                ? $"«Mejorar» va a intentar desactivar {preview.AutoDisable.Count} programa(s) de inicio"
+                : "Ningún programa de inicio se desactiva solo en este equipo",
+            string.Join(" ", parts),
+            metrics);
     }
 
     private static ReportRow ToRow(Finding finding) => new(

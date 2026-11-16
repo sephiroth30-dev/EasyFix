@@ -17,6 +17,45 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.2] — 2026-11-16
+
+Reporte de uso real en dos equipos: «siento que no hizo nada» al usar «Mejorar rendimiento», y
+«no pidió reiniciar» al desactivar programas de inicio. Las dos sensaciones tenían causa concreta.
+
+### El hallazgo
+
+`StartupDisableFix` desactiva programas de arranque escribiendo el flag de `StartupApproved` —
+**nunca borra la entrada de la clave `Run`** (si la borrara, el usuario no podría volver a
+habilitarla desde el Administrador de tareas). Pero `SystemProbe.ProbeStartupEntries`, la sonda que
+alimenta el checklist «programas de inicio», contaba las entradas de `Run` **sin mirar ese flag**.
+Resultado medido: desactivar seis programas y el checklist mostraba el mismo número antes y
+después. La herramienta trabajaba; la medición no se enteraba.
+
+### Corregido
+
+- **`StartupApproval.IsEnabled(byte[]?)`** — única fuente de la regla del bit, antes duplicada (y
+  en `SystemProbe`, ausente). `ProbeStartupEntries` ahora abre la clave `StartupApproved`
+  correspondiente a cada `Run` y solo cuenta lo que sigue habilitado.
+- **El mensaje de «Mejorar rendimiento» explica que el efecto se nota recién en el próximo
+  arranque** — no hacía falta reiniciar para *guardar* el cambio, pero tampoco había efecto
+  inmediato en la sesión, y eso no se decía.
+
+### Agregado
+
+- **Vista previa de inicio durante el análisis** (`StartupPreview`, nuevo en `Core/Classification/`):
+  antes de apretar «Mejorar», el reporte dice con nombres qué se desactiva solo, qué necesita
+  confirmación (y cómo quitarlo a mano hoy mismo desde el Administrador de tareas) y qué es
+  intocable. En un equipo de oficina típico, la lista blanca curada (Spotify, Discord, Adobe…) no
+  tiene match: antes eso se vivía como «no hizo nada», ahora se dice explícito.
+- **La vista previa respeta la compuerta de dominio** de `StartupDisableFix.CanApplyAsync`
+  (`IsDomainJoined != false` bloquea el fix entero) — encontrado por una revisión adversarial sobre
+  este mismo cambio: sin esto, la vista previa hubiese prometido «se desactiva solo: Spotify» en un
+  equipo donde el botón real no toca nada. Va a una categoría separada con el motivo explicado.
+
+**Probado:** 512 tests (510 + 2 omitidos). Build Release, 0 warnings.
+
+---
+
 ## [0.9.1] — 2026-11-16
 
 El release de v0.9.0 falló en el CI — y ese fallo fue **la primera corrida de los tests en un

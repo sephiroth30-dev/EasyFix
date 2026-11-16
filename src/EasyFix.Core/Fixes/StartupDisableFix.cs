@@ -165,6 +165,14 @@ public sealed class StartupDisableFix : IFix
                 case ClassificationTier.HardBlocked:
                     blocked.Add(entry.Candidate.DisplayName);
                     break;
+
+                default:
+                    // Fallar cerrado ante un tier nuevo que nadie clasificó acá todavía: no se
+                    // toca, pero tampoco desaparece del conteo — StartupPreview usa el mismo
+                    // default (-> Blocked) por simetría, para que los dos nunca diverjan en
+                    // silencio si algún día se agrega un cuarto tier.
+                    blocked.Add(entry.Candidate.DisplayName);
+                    break;
             }
         }
 
@@ -187,7 +195,10 @@ public sealed class StartupDisableFix : IFix
         var summary = new System.Text.StringBuilder();
         summary.Append($"Se quitaron {disabled.Count} programa(s) del inicio: ");
         summary.Append(string.Join(", ", disabled));
-        summary.Append('.');
+        summary.Append(
+            ". El cambio ya está escrito; no hace falta reiniciar para que quede guardado, pero " +
+            "SOLO SE VA A NOTAR en el próximo arranque de Windows — hasta entonces el equipo sigue " +
+            "funcionando con los programas que ya estaban corriendo.");
 
         if (needApproval.Count > 0)
         {

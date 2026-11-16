@@ -8,11 +8,31 @@
 > se vaya a tocar. El resto del documento es material de referencia que cambia poco: objetivo,
 > arquitectura, catálogos de diagnóstico y de fixes.
 
-## v0.9.0 — Estado y plan activo
+## v0.9.2 — Estado y plan activo
 
-> Última actualización: 2026-11-15, después de v0.9.0.
-> **492 tests pasan, 2 se omiten** (los que exigen Windows). `dotnet build` limpio en Release, cero
-> warnings. `.exe` portable de 68,9 MiB.
+> Última actualización: 2026-11-16, después de v0.9.2.
+> **510 tests pasan, 2 se omiten** (los que exigen Windows). `dotnet build` limpio en Release, cero
+> warnings. `.exe` portable ~69 MiB. CI en `windows-latest` corre en cada push.
+
+### v0.9.2 — la medición de "programas de inicio" mentía, y nadie se había dado cuenta
+
+Primer uso real reportado (dos equipos): «siento que Mejorar rendimiento no hizo nada» +
+«desactivé programas de inicio y no pidió reiniciar». Causa real: `StartupDisableFix` desactiva
+escribiendo el flag de `StartupApproved` sin borrar la clave `Run` (correcto: así se puede
+re-habilitar desde Windows), pero `ProbeStartupEntries` contaba `Run` sin mirar ese flag. El
+checklist mostraba el mismo número antes y después de desactivar programas.
+
+Corregido + agregado: `StartupApproval.IsEnabled` como única fuente de la regla del bit;
+`ProbeStartupEntries` ahora la respeta; `StartupPreview` muestra en el análisis, con nombres, qué va
+a pasar al apretar «Mejorar» (clave para equipos de oficina donde la lista blanca no tiene match —
+antes eso se sentía como "no hace nada", ahora lo dice). La vista previa respeta la compuerta de
+dominio de `CanApplyAsync` — una revisión adversarial encontró que sin eso prometía de más en
+equipos de dominio. Ver CHANGELOG.md para el detalle completo.
+
+**Lección para la próxima vez que algo "parezca no funcionar":** antes de asumir que el fix no
+corrió, comparar la medición de ANTES contra la de DESPUÉS campo por campo — si un número no se
+mueve cuando debería, sospechar de la SONDA antes que del FIX. Es el mismo patrón que v0.5.0–v0.8.0,
+dado vuelta: acá el software sí funcionaba, la medición era la que mentía por omisión.
 
 ### Dónde está el proyecto
 
