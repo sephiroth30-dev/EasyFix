@@ -21,6 +21,7 @@
         <vm:InverseBooleanConverter x:Key="Invert" />
         <vm:InverseBooleanToVisibilityConverter x:Key="InvertVis" />
         <BooleanToVisibilityConverter x:Key="BoolVis" />
+        <vm:HexToBrushConverter x:Key="HexBrush" />
 
         <!-- Una fila del reporte: franja de color + título + detalle + números medidos. -->
         <DataTemplate x:Key="ReportRowTemplate" DataType="{x:Type vm:ReportRow}">
@@ -145,120 +146,116 @@
                 </StackPanel>
             </Grid>
 
-            <!-- ===== Cuerpo: barra lateral de navegación + contenido ===== -->
+            <!-- ===== Cuerpo: sin barra lateral =====
+                 La barra de 248px se eliminó entera. Con el análisis corriendo solo al abrir
+                 (v0.13.0), «Analizar» quedó como botón vestigial, y a la barra le sobraba espacio
+                 vacío ocupando casi un tercio del ancho. El técnico lo pidió así: «el mini resumen
+                 central recuperando el espacio de la izquierda».
+
+                 La navegación pasa a ser contextual: UN botón principal —el que corresponde a lo
+                 que se encontró— y el resto como enlaces discretos al pie. -->
             <Grid Grid.Row="1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="248" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
 
-                <!-- ===== Barra lateral: siempre visible, es el panel de navegación ===== -->
-                <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-                    <Grid Margin="16,18,16,16">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
+            <!-- ===== 1. Inicio: el inventario del equipo =====
+                 Es la pantalla que se ve al abrir y a la que se vuelve siempre. Muestra SOLO lo
+                 que necesita atención; las 12 condiciones completas quedan detrás de «Ver todo».
+                 Home y Report comparten esta plantilla: después de v0.13.0 el análisis es
+                 automático, así que no hay un «antes de analizar» que valga una pantalla propia. -->
+            <Grid Margin="48,16,48,20">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentScreen}" Value="Home">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding CurrentScreen}" Value="Report">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
 
-                        <!-- Identidad del equipo: una sola vez acá, no repetida en cada pantalla. -->
-                        <Border Grid.Row="0" Style="{StaticResource StatusPanel}" Margin="0,0,0,18">
-                            <TextBlock Text="{Binding SystemSummary}" Style="{StaticResource MutedText}"
-                                       FontSize="11.5" />
-                        </Border>
-
-                        <!-- Navegación: las cuatro acciones, siempre a mano. Disponibles se evalúa
-                             internamente (ej. "Mejorar" sin analizar antes solo avisa, no rompe). -->
-                        <StackPanel Grid.Row="1" VerticalAlignment="Top">
-                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding AnalyzeCommand}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Analizar el equipo" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Button>
-
-                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding ImproveCommand}"
-                                    IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Mejorar rendimiento" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Button>
-
-                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding RepairCommand}"
-                                    IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Reparar errores" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Button>
-
-                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding InstallAppsCommand}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Instalar programas" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Button>
-
-                            <!-- Acción propia: los drivers son parte de «Reparar errores», pero
-                                 esperar los 40 min de DISM para actualizar un driver de red no
-                                 tiene sentido. Corre el mismo fix, por el mismo FixRunner, con
-                                 las mismas compuertas de seguridad. -->
-                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding UpdateDriversCommand}"
-                                    IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}"
-                                    ToolTip="Instala solos los controladores de bajo riesgo (red, video, audio, USB, Bluetooth, impresora). Los de almacenamiento se informan sin tocar; el firmware/BIOS nunca.">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Buscar controladores" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- Deshacer: solo si hay algo que revertir. Vive siempre abajo del todo,
-                             separado de las acciones normales — es la de "algo salió mal". -->
-                        <Button Grid.Row="2" Style="{StaticResource SidebarNavButton}"
-                                Command="{Binding OpenUndoCommand}"
-                                Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}"
-                                BorderBrush="{StaticResource WarningBrush}">
-                            <StackPanel Orientation="Horizontal">
-                                <StackPanel>
-                                    <TextBlock Text="Deshacer la última reparación" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding UndoSummary}" Style="{StaticResource MutedText}"
-                                               FontSize="10.5" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-                </Border>
-
-                <!-- ===== Contenido: cambia según la pantalla actual ===== -->
-                <Grid Grid.Column="1">
-
-            <!-- ===== 1. Inicio ===== -->
-            <Grid Margin="28,24,28,24"
-                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Home}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="300" />
+                </Grid.ColumnDefinitions>
 
-                <!-- Estado vacío: las acciones viven en la barra lateral, no se repiten acá. -->
-                <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center"
-                            MaxWidth="360">
-                    <TextBlock Text="Elegí una acción en el panel izquierdo para empezar"
-                               Style="{StaticResource TitleText}" FontSize="15"
-                               TextWrapping="Wrap" TextAlignment="Center" />
-                    <TextBlock Text="«Analizar» es de solo lectura y no modifica nada. Es el primer paso en cualquier equipo nuevo."
-                               Style="{StaticResource MutedText}" FontSize="12" Margin="0,8,0,0"
-                               TextAlignment="Center" />
+                <!-- ===== Centro: identidad del equipo, titular y la acción ===== -->
+                <StackPanel Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" MaxWidth="480">
+                    <TextBlock Text="{Binding SystemSummary}" Style="{StaticResource MutedText}"
+                               FontSize="12.5" TextAlignment="Center" Opacity="0.85" />
+
+                    <TextBlock Text="{Binding Headline}"
+                               FontFamily="{StaticResource UiFont}" FontSize="30" FontWeight="Light"
+                               Foreground="{StaticResource TextBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0" />
+
+                    <!-- UN botón principal, y solo si de verdad hay algo que hacer. Con el disco
+                         fallando no aparece ninguno: optimizar un disco que se muere es la peor
+                         jugada, y la pantalla respeta la misma compuerta que el motor. -->
+                    <Button Content="Mejorar rendimiento" Command="{Binding ImproveCommand}"
+                            Style="{StaticResource HeroButton}" Margin="0,28,0,0"
+                            HorizontalAlignment="Center"
+                            Visibility="{Binding ShowImproveAsPrimary, Converter={StaticResource BoolVis}}" />
+
+                    <Button Content="Reparar errores" Command="{Binding RepairCommand}"
+                            Style="{StaticResource LinkButton}" Margin="0,14,0,0"
+                            HorizontalAlignment="Center"
+                            Visibility="{Binding ShowAnySecondaryAction, Converter={StaticResource BoolVis}}" />
                 </StackPanel>
 
-                <Border Grid.Row="1" Style="{StaticResource StatusPanel}"
-                        Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
-                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}" FontSize="11.5" />
-                </Border>
+                <!-- ===== Derecha: solo lo que necesita atención ===== -->
+                <Grid Grid.Row="0" Grid.Column="2" VerticalAlignment="Center"
+                      Visibility="{Binding HasAttentionRows, Converter={StaticResource BoolVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="NECESITA ATENCIÓN"
+                               Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  MaxHeight="380" Padding="0,0,6,0">
+                        <ItemsControl ItemsSource="{Binding AttentionRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}" />
+                    </ScrollViewer>
+
+                    <Button Grid.Row="2" Command="{Binding ShowFullReportCommand}"
+                            Style="{StaticResource LinkButton}" Margin="0,12,0,0"
+                            HorizontalAlignment="Left">
+                        <TextBlock>
+                            <Run Text="Ver todo (" /><Run Text="{Binding ReviewedCount, Mode=OneWay}" /><Run
+                                Text=" revisado, " /><Run Text="{Binding GoodCount, Mode=OneWay}" /><Run Text=" bien)" />
+                        </TextBlock>
+                    </Button>
+                </Grid>
+
+                <!-- ===== Pie: el resto de las acciones, sin competir con la principal ===== -->
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <Button Content="Instalar programas" Command="{Binding InstallAppsCommand}"
+                            Style="{StaticResource LinkButton}" />
+                    <TextBlock Text="·" Style="{StaticResource MutedText}" Margin="12,0" Opacity="0.5" />
+                    <Button Content="Buscar controladores" Command="{Binding UpdateDriversCommand}"
+                            Style="{StaticResource LinkButton}"
+                            IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}" />
+                    <TextBlock Text="·" Style="{StaticResource MutedText}" Margin="12,0" Opacity="0.5"
+                               Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}" />
+                    <Button Content="Deshacer la última reparación" Command="{Binding OpenUndoCommand}"
+                            Style="{StaticResource LinkButton}"
+                            Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}" />
+                    <TextBlock Text="·" Style="{StaticResource MutedText}" Margin="12,0" Opacity="0.5" />
+                    <Button Content="Volver a analizar" Command="{Binding AnalyzeCommand}"
+                            Style="{StaticResource LinkButton}" />
+                </StackPanel>
             </Grid>
 
             <!-- ===== 2. Analizando ===== -->
@@ -307,7 +304,7 @@
             <!-- ===== 3. Reporte — dos columnas: lo cramped que quedaba en una sola pantalla
                  angosta era justamente el problema a resolver con más ancho. ===== -->
             <Grid Margin="28,24,28,20"
-                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Report}">
+                  Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=FullReport}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
@@ -448,6 +445,54 @@
 
                     <!-- Durante la instalación: la historia manda. -->
                     <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
+
+                        <!-- Monograma de la marca: círculo con su color y la inicial. No es el
+                             logo real — cuando se cuenta la historia el programa todavía se está
+                             instalando, así que no hay ejecutable del que sacar el icono, y
+                             empaquetar logos ajenos traería binarios de marcas al repo.
+                             Entra con una animación corta para que se note el cambio de programa. -->
+                        <Border Width="68" Height="68" CornerRadius="34"
+                                HorizontalAlignment="Left" Margin="0,0,0,22"
+                                Background="{Binding CurrentBrandColor, Converter={StaticResource HexBrush}}"
+                                Visibility="{Binding CurrentBrandInitial, Converter={StaticResource EmptyVis}}"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="MonogramScale" ScaleX="1" ScaleY="1" />
+                            </Border.RenderTransform>
+
+                            <TextBlock Text="{Binding CurrentBrandInitial}"
+                                       FontFamily="{StaticResource UiFont}" FontSize="30"
+                                       FontWeight="SemiBold" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                            <Border.Triggers>
+                                <!-- Se dispara cada vez que el monograma se vuelve visible, o sea
+                                     al empezar cada programa de la tanda. -->
+                                <EventTrigger RoutedEvent="Border.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="MonogramScale"
+                                                             Storyboard.TargetProperty="ScaleX"
+                                                             From="0.6" To="1" Duration="0:0:0.35">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase EasingMode="EaseOut" Amplitude="0.4" />
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="MonogramScale"
+                                                             Storyboard.TargetProperty="ScaleY"
+                                                             From="0.6" To="1" Duration="0:0:0.35">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase EasingMode="EaseOut" Amplitude="0.4" />
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="0" To="1" Duration="0:0:0.3" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Border.Triggers>
+                        </Border>
+
                         <TextBlock Text="{Binding CurrentStoryTitle}"
                                    FontFamily="{StaticResource UiFont}" FontSize="34"
                                    FontWeight="Light" TextWrapping="Wrap"
@@ -516,35 +561,49 @@
                                FontSize="12" TextWrapping="Wrap" />
                 </Border>
 
-                <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,18,0,0">
-                    <Button Content="Volver" Command="{Binding BackCommand}"
-                            Style="{StaticResource GhostButton}" Width="80"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
+                <!-- DOS botones, no cinco.
+                     Antes había Volver, Instalar, Actualizar, Predeterminados y Diagnosticar
+                     winget, todos con el mismo peso visual, compitiendo por la atención en el
+                     momento en que solo hay una cosa que hacer: instalar. Lo secundario pasó a
+                     enlaces discretos a la derecha — sigue a un clic, sin ocupar el lugar de la
+                     acción principal. -->
+                <Grid Grid.Row="2" Grid.ColumnSpan="3" Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
 
-                    <!-- Durante la instalación, «Instalar» se reemplaza por «Cancelar». -->
-                    <Button Content="Instalar" Command="{Binding RunInstallCommand}"
-                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
-                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
-                    <Button Content="Cancelar" Command="{Binding CancelCommand}"
-                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Corta la tanda. El programa que ya se esté instalando termina igual."
-                            Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <Button Content="Volver" Command="{Binding BackCommand}"
+                                Style="{StaticResource GhostButton}" Width="80"
+                                IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
 
-                    <Button Content="Actualizar lo instalado" Command="{Binding UpgradeInstalledCommand}"
-                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Busca versiones nuevas de los programas que YA están en el equipo y las instala. No instala nada que no esté."
-                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+                        <!-- Durante la instalación, «Instalar» se reemplaza por «Cancelar». -->
+                        <Button Content="Instalar" Command="{Binding RunInstallCommand}"
+                                Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+                        <Button Content="Cancelar" Command="{Binding CancelCommand}"
+                                Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                ToolTip="Corta la tanda. El programa que ya se esté instalando termina igual."
+                                Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+                    </StackPanel>
 
-                    <Button Content="Predeterminados" Command="{Binding OpenDefaultAppsCommand}"
-                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Abre la pantalla de Windows para poner Chrome como navegador y Acrobat Reader para los PDF."
-                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
-
-                    <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
-                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico."
-                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
-                </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}">
+                        <Button Content="Actualizar lo instalado" Command="{Binding UpgradeInstalledCommand}"
+                                Style="{StaticResource LinkButton}"
+                                ToolTip="Busca versiones nuevas de los programas que YA están en el equipo. No instala nada que no esté." />
+                        <TextBlock Text="·" Style="{StaticResource MutedText}" Margin="10,0" Opacity="0.5" />
+                        <Button Content="Predeterminados" Command="{Binding OpenDefaultAppsCommand}"
+                                Style="{StaticResource LinkButton}"
+                                ToolTip="Abre la pantalla de Windows para elegir el navegador y el lector de PDF." />
+                        <TextBlock Text="·" Style="{StaticResource MutedText}" Margin="10,0" Opacity="0.5" />
+                        <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
+                                Style="{StaticResource LinkButton}"
+                                ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si algo sigue sin andar y querés el detalle técnico." />
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <!-- ===== 5. Reparando ===== -->
@@ -743,7 +802,6 @@
                 </StackPanel>
             </Grid>
 
-                </Grid>
             </Grid>
 
         </Grid>

@@ -630,6 +630,56 @@ public sealed class WingetServiceTests
     }
 
     [Fact]
+    public void TodoProgramaTieneMonograma()
+    {
+        // El monograma (círculo con el color de la marca y su inicial) acompaña a la historia.
+        // Sin color configurado cae al acento del tema y todos los programas se ven iguales, que
+        // es justo lo contrario de lo que el monograma busca: que se reconozca de un vistazo.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        var sinColor = options.WingetPackages
+            .Where(p => string.IsNullOrWhiteSpace(p.BrandColor))
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.True(
+            sinColor.Count == 0,
+            $"Sin 'brandColor': {string.Join(", ", sinColor)}. Agregá el color de la marca en #RRGGBB.");
+    }
+
+    [Theory]
+    [InlineData("#4285F4")]
+    [InlineData("#1E7D34")]
+    public void ElFormatoDeColorEsElEsperado(string sample) =>
+        Assert.Matches("^#[0-9A-Fa-f]{6}$", sample);
+
+    [Fact]
+    public void LosColoresDeMarcaSonHexValidos()
+    {
+        // Un valor inválido no rompe la app (el converter cae al acento), pero deja el programa
+        // sin su color sin que nadie se entere. Mejor que falle acá.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        foreach (WingetPackage package in options.WingetPackages.Where(p => p.BrandColor is not null))
+        {
+            Assert.Matches("^#[0-9A-Fa-f]{6}$", package.BrandColor!);
+        }
+    }
+
+    [Fact]
+    public void LasInicialesSonUnSoloCaracter()
+    {
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        foreach (WingetPackage package in options.WingetPackages.Where(p => p.BrandInitial is not null))
+        {
+            Assert.True(
+                package.BrandInitial!.Length == 1,
+                $"La inicial de {package.Name} es '{package.BrandInitial}'; tiene que ser un solo carácter.");
+        }
+    }
+
+    [Fact]
     public void LasHistoriasTienenLargoUtil()
     {
         // Demasiado corta no ocupa el tiempo de espera; demasiado larga no se lee. El rango sale

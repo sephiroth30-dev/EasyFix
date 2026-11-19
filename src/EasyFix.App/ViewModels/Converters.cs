@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace EasyFix.App.ViewModels;
 
@@ -61,4 +62,41 @@ public sealed class InverseBooleanConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is bool flag && !flag;
+}
+
+/// <summary>
+/// Convierte un color <c>#RRGGBB</c> de la configuración en un pincel.
+/// </summary>
+/// <remarks>
+/// <para>Lo usa el monograma que acompaña a la historia de cada programa: un círculo con el color
+/// de la marca y su inicial. No se dibuja el logo real porque cuando se cuenta la historia el
+/// programa todavía se está instalando —así que su ejecutable no existe para sacarle el icono— y
+/// empaquetar logos ajenos traería binarios de marcas registradas al repo.</para>
+///
+/// <para>Un valor inválido o ausente cae en el color de acento del tema, que siempre existe: un
+/// typo en <c>appsettings.json</c> no puede dejar un hueco negro en la pantalla.</para>
+/// </remarks>
+public sealed class HexToBrushConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is string hex && hex.Length > 0)
+        {
+            try
+            {
+                var color = (Color)ColorConverter.ConvertFromString(hex);
+                return new SolidColorBrush(color);
+            }
+            catch (FormatException)
+            {
+                // Cae al acento, abajo.
+            }
+        }
+
+        return Application.Current?.TryFindResource("AccentBrush") as Brush
+               ?? new SolidColorBrush(Colors.Gray);
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }

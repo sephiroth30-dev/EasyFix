@@ -232,6 +232,26 @@ public sealed record WingetPackage
     public string? Story { get; init; }
 
     /// <summary>
+    /// Color de la marca, en <c>#RRGGBB</c>, para el monograma que acompaña a la historia.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Por qué un monograma y no el logo real.</b> Extraer el icono del ejecutable no
+    /// sirve: cuando se cuenta la historia el programa todavía se está instalando, así que el
+    /// archivo no existe. Y empaquetar los logos significaría meter binarios de marcas ajenas en
+    /// el repo, con el problema de marcas registradas y de mantenerlos actualizados.</para>
+    ///
+    /// <para>Un círculo con el color de la marca y la inicial se reconoce igual de rápido, sale de
+    /// configuración —editable sin recompilar—, y no reproduce ninguna marca.</para>
+    /// </remarks>
+    public string? BrandColor { get; init; }
+
+    /// <summary>
+    /// Letra del monograma. Si falta, se usa la inicial de <see cref="Name"/>.
+    /// </summary>
+    /// <remarks>Existe para casos como «7-Zip», donde la inicial útil es el 7 y no la Z.</remarks>
+    public string? BrandInitial { get; init; }
+
+    /// <summary>
     /// Descarga desde el origen oficial, para lo que no está en winget.
     /// </summary>
     /// <remarks>

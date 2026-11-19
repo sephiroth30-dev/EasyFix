@@ -6,6 +6,11 @@ using Microsoft.Extensions.Logging;
 
 namespace EasyFix.Core.Apps;
 
+/// <summary>Qué programa está puesto hoy como predeterminado para algo.</summary>
+/// <param name="IsExpected"><c>true</c> si ya es el que queremos. <c>null</c> = no se pudo leer.</param>
+/// <param name="CurrentProgId">Lo que hay configurado ahora, para el reporte. <c>null</c> si no hay.</param>
+public sealed record DefaultAppStatus(bool? IsExpected, string? CurrentProgId);
+
 /// <summary>Qué pasó al intentar dejar Chrome y Acrobat Reader como predeterminados.</summary>
 /// <param name="AppliedToNewProfiles">
 /// <c>true</c> si DISM aceptó el archivo de asociaciones. <b>Solo afecta a perfiles de usuario
@@ -60,6 +65,56 @@ public sealed class DefaultAppsConfigurator
 
         _runner = runner;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Qué navegador está puesto como predeterminado para <c>http</c> en el perfil actual.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Leer sí se puede; escribir no.</b> Windows protege la escritura de
+    /// <c>UserChoice</c> (hash + driver <c>UCPD.sys</c>), pero el valor es legible sin ningún
+    /// truco. Eso permite lo que de verdad hace falta: <b>saber si hace falta hacer algo</b>, en
+    /// vez de abrir la ventana de Configuración a ciegas cada vez.</para>
+    ///
+    /// <para><c>null</c> en <see cref="DefaultAppStatus.IsExpected"/> significa que no se pudo
+    /// leer — no se afirma ni que está ni que no está.</para>
+    /// </remarks>
+    public DefaultAppStatus GetBrowserStatus() =>
+        ReadUserChoice(
+            @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Shell Associations\UrlAssociations\http\UserChoice",
+            ChromeProgId);
+
+    /// <summary>Qué programa abre los PDF en el perfil actual.</summary>
+    public DefaultAppStatus GetPdfStatus() =>
+        ReadUserChoice(
+            @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice",
+            AcrobatProgId);
+
+    private DefaultAppStatus ReadUserChoice(string keyPath, string expectedProgId)
+    {
+        try
+        {
+            if (Microsoft.Win32.Registry.GetValue(keyPath, "ProgId", null) is not string progId ||
+                progId.Length == 0)
+            {
+                // La clave no existe: nunca se eligió nada explícitamente. No es «no es el
+                // nuestro», es «no hay dato» — y la diferencia importa para no afirmar de más.
+                return new DefaultAppStatus(null, null);
+            }
+
+            // Comparación por prefijo: Acrobat registra variantes («AcroExch.Document.DC»,
+            // «Acrobat.Document.DC» según versión) y Chrome agrega un sufijo por instalación
+            // en algunos equipos.
+            bool matches = progId.StartsWith(expectedProgId, StringComparison.OrdinalIgnoreCase) ||
+                           expectedProgId.StartsWith(progId, StringComparison.OrdinalIgnoreCase);
+
+            return new DefaultAppStatus(matches, progId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo leer el predeterminado en {Key}.", keyPath);
+            return new DefaultAppStatus(null, null);
+        }
     }
 
     /// <summary>

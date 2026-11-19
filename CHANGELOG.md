@@ -17,6 +17,72 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.14.0] — 2026-11-19
+
+Rediseño de la interfaz, con un plan previo en vez de a ojo. Más seis correcciones reportadas
+desde un equipo real.
+
+### Cambiado — se eliminó la barra lateral
+
+La barra de 248 px ocupaba casi un tercio del ancho con cinco botones, y desde que el análisis
+corre solo al abrir (v0.13.0) el de «Analizar» era vestigial. El técnico lo pidió claro: *«el
+mini resumen central recuperando el espacio de la izquierda»*.
+
+Se eliminó entera — no se colapsa ni se reduce a iconos. Dibujar iconos a mano en XAML es
+exactamente el tipo de cosa que no se puede verificar desde macOS y que ya salió mal una vez.
+La navegación pasa a ser contextual: **un** botón principal y el resto como enlaces discretos.
+
+### Cambiado — el inicio es el inventario del equipo
+
+Antes: una pantalla de bienvenida sin información, y el reporte con cuatro secciones donde había
+que leer las 12 condiciones para encontrar lo que importaba.
+
+Ahora, al abrir: identidad del equipo, un titular que dice qué pasa (*«Encontramos 3 cosas para
+mejorar»*), el botón de la acción que corresponde, y a la derecha **solo lo que necesita
+atención**. El detalle completo queda detrás de «Ver todo (12 revisado, 9 bien)».
+
+**Lo que no se pudo medir entra siempre en ese resumen, sin filtrar.** Es lo primero que uno
+recortaría para que la pantalla de entrada quede limpia, y es justo lo que no se puede recortar.
+Con cosas sin medir el titular nunca dice «está todo bien» — dice cuántas quedaron sin medir.
+Hay pruebas que lo fijan.
+
+**Con el disco fallando no se ofrece ninguna acción principal**, igual que ya hacía el motor:
+optimizar un disco que se muere es la peor jugada posible. La pantalla respeta la misma compuerta.
+
+### Cambiado — de cinco botones a dos
+
+En «Instalar programas» había cinco botones del mismo peso compitiendo en el momento en que solo
+hay una cosa que hacer. Quedan **Volver** e **Instalar**; «Actualizar lo instalado»,
+«Predeterminados» y «Diagnosticar winget» pasan a enlaces discretos a la derecha.
+
+### Agregado — monograma animado en la historia
+
+Cada programa muestra un círculo con el color de su marca y su inicial, que entra con una
+animación corta al cambiar de programa.
+
+**No es el logo real, y es deliberado:** cuando se cuenta la historia el programa todavía se está
+instalando, así que no hay ejecutable del que sacar el icono; y empaquetar logos ajenos traería
+binarios de marcas registradas al repo. El color y la inicial salen de `appsettings.json`,
+editables sin recompilar, con tests que validan el formato.
+
+### Corregido
+
+- **«Buscar controladores» devolvía el informe de una reparación completa.** Volvía a medir las 12
+  condiciones y mostraba el antes/después de cosas que ni se tocaron. Ahora una corrida de un solo
+  fix no dispara esa re-medición — que además tardaba de más para nada.
+- **Los predeterminados abrían la ventana de Windows sin que nadie la pidiera.** Ahora se
+  **comprueba primero** si Chrome ya es el navegador y Acrobat el lector de PDF (leer el registro
+  sí se puede; lo que Windows bloquea es escribirlo). Si ya está, no se hace nada ni se abre nada.
+  Si falta, se dice en el resumen y queda el enlace «Predeterminados» para cuando el técnico
+  decida — no se le interrumpe el trabajo con una ventana.
+
+**Probado:** 612 pruebas (592 Core + 20 App), build Release 0 warnings, `.exe` generado.
+**SIN VERIFICAR en Windows:** todo lo visual. Es un rediseño de layout que nadie vio renderizado —
+el ancho de la columna de atención a 860 px, el wrapping del titular con nombres de equipo largos,
+y la animación del monograma son los puntos más expuestos.
+
+---
+
 ## [0.13.0] — 2026-11-19
 
 ### Corregido — RustDesk abría una ventana de Windows Installer y fallaba (0x667)

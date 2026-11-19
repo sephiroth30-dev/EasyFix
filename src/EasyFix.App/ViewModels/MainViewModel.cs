@@ -20,7 +20,17 @@ public enum Screen
 {
     Home,
     Scanning,
+
+    /// <summary>
+    /// El inicio con el inventario ya cargado. Comparte plantilla con <see cref="Home"/>: desde
+    /// que el análisis corre solo al abrir, no hay un «antes de analizar» que valga una pantalla
+    /// distinta.
+    /// </summary>
     Report,
+
+    /// <summary>Las 12 condiciones completas, incluidas las que están bien. Detrás de «Ver todo».</summary>
+    FullReport,
+
     Apps,
     Repairing,
     RepairResult,
@@ -152,6 +162,10 @@ public sealed partial class MainViewModel : ObservableObject
         // automático de después de instalar.
         OpenDefaultAppsCommand = new RelayCommand(() => OpenDefaultApps());
 
+        // El detalle completo de las 12 condiciones vive detrás de un clic: el inicio muestra
+        // solo lo que necesita atención.
+        ShowFullReportCommand = new RelayCommand(() => CurrentScreen = Screen.FullReport);
+
         OpenUndoCommand = new RelayCommand(OpenUndo);
         UndoCommand = new AsyncRelayCommand(UndoAsync, () => !IsBusy && _undoTarget is not null);
 
@@ -171,6 +185,7 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand InstallAppsCommand { get; }
     public IAsyncRelayCommand DiagnoseWingetCommand { get; }
     public IRelayCommand OpenDefaultAppsCommand { get; }
+    public IRelayCommand ShowFullReportCommand { get; }
     public IRelayCommand OpenUndoCommand { get; }
     public IAsyncRelayCommand UndoCommand { get; }
 
@@ -475,6 +490,70 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Lo que no se pudo medir. Se muestra: un chequeo que falló no es "todo bien".</summary>
     public ObservableCollection<ReportRow> UndeterminedRows { get; } = new();
 
+    /// <summary>
+    /// Lo único que necesita atención: lo grave y lo que no se pudo medir. Es lo que se ve al
+    /// abrir la app, sin tener que leer las 12 condiciones en verde.
+    /// </summary>
+    /// <remarks>
+    /// <para>No reemplaza a las otras colecciones — las resume. El detalle completo sigue detrás
+    /// de «Ver todo», intacto.</para>
+    ///
+    /// <para><b>Lo no determinado entra SIEMPRE, sin filtrar.</b> Un resumen que esconde «no se
+    /// pudo medir» para verse más prolijo es exactamente la mentira que este proyecto persigue
+    /// desde v0.5.0, y acá estaría en la cara más visible de la app.</para>
+    /// </remarks>
+    public ObservableCollection<ReportRow> AttentionRows { get; } = new();
+
+    public bool HasAttentionRows => AttentionRows.Count > 0;
+
+    /// <summary>Cuántas condiciones se revisaron y cuántas están bien. Para «Ver todo (N revisado, M bien)».</summary>
+    [ObservableProperty]
+    private int _reviewedCount;
+
+    [ObservableProperty]
+    private int _goodCount;
+
+    /// <summary>Titular del inicio: lo primero que lee el técnico al abrir.</summary>
+    [ObservableProperty]
+    private string _headline = "Revisando el equipo…";
+
+    /// <summary>
+    /// Qué acción se ofrece como botón principal. Solo una, y solo si de verdad hay algo que
+    /// hacer: un botón que no cambia nada al apretarlo es peor que no tenerlo.
+    /// </summary>
+    public bool ShowImproveAsPrimary => _primaryAction == PrimaryAction.Improve;
+    public bool ShowRepairAsPrimary => _primaryAction == PrimaryAction.Repair;
+    public bool ShowAnySecondaryAction => _primaryAction != PrimaryAction.None;
+
+    private enum PrimaryAction { None, Improve, Repair }
+
+    private PrimaryAction _primaryAction = PrimaryAction.None;
+
+    /// <summary>
+    /// Decide cuál es la acción principal a partir de lo encontrado.
+    /// </summary>
+    /// <remarks>
+    /// Con el disco fallando no se ofrece NINGUNA: optimizar un disco que se muere es la peor
+    /// jugada posible, y es la misma compuerta que ya aplica <see cref="FixRunner"/>. Fallar
+    /// cerrado también en la pantalla, no solo en el motor.
+    /// </remarks>
+    private void DecidePrimaryAction()
+    {
+        if (FixesBlocked)
+        {
+            _primaryAction = PrimaryAction.None;
+        }
+        else
+        {
+            bool algoGrave = AttentionRows.Any(r => r.Kind is "crit" or "warn");
+            _primaryAction = algoGrave ? PrimaryAction.Improve : PrimaryAction.None;
+        }
+
+        OnPropertyChanged(nameof(ShowImproveAsPrimary));
+        OnPropertyChanged(nameof(ShowRepairAsPrimary));
+        OnPropertyChanged(nameof(ShowAnySecondaryAction));
+    }
+
     /// <summary>Resultado de la última reparación.</summary>
     public ObservableCollection<ReportRow> RepairRows { get; } = new();
 
@@ -573,6 +652,14 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Nombre del programa cuya historia se está mostrando. Es el titular de la pantalla.</summary>
     [ObservableProperty]
     private string? _currentStoryTitle;
+
+    /// <summary>Color de marca del programa en curso, para el monograma. <c>null</c> = sin color.</summary>
+    [ObservableProperty]
+    private string? _currentBrandColor;
+
+    /// <summary>Letra del monograma del programa en curso.</summary>
+    [ObservableProperty]
+    private string? _currentBrandInitial;
 
     public int ConfiguredPackageCount => _options.WingetPackages.Count;
 
@@ -827,6 +914,7 @@ public sealed partial class MainViewModel : ObservableObject
                 DescribeProbe(failure.CheckId), failure.Reason, null, "info"));
         }
 
+        BuildAttentionSummary();
         NotifyReportChanged();
 
         // Los hallazgos también al log: un reporte se puede reconstruir desde el archivo sin
@@ -957,8 +1045,16 @@ public sealed partial class MainViewModel : ObservableObject
             RefreshUndoAvailability();
 
             // La prueba de que funcionó: se vuelve a medir TODO y se muestra el checklist en dos
-            // columnas. Sin esta re-medición, «mejoró» sería una promesa, no un dato.
-            if (!result.Aborted)
+            // columnas. Sin esa re-medición, «mejoró» sería una promesa, no un dato.
+            //
+            // PERO solo para una corrida COMPLETA. Una corrida de un solo fix —«Buscar
+            // controladores»— no justifica volver a medir las 12 condiciones del equipo ni
+            // mostrar un antes/después de cosas que ni se tocaron: el técnico pidió actualizar
+            // drivers y recibía un informe de reparación entero que no pidió. Además la
+            // re-medición tarda sus segundos, y hacerla para nada es tiempo suyo.
+            bool wasFullRun = onlyFixId is null;
+
+            if (!result.Aborted && wasFullRun)
             {
                 await VerifyAfterFixesAsync(_cts!.Token);
             }
@@ -1208,6 +1304,12 @@ public sealed partial class MainViewModel : ObservableObject
 
                 CurrentStoryTitle = p.DisplayName;
                 CurrentStory = pkg?.Story;
+                CurrentBrandColor = pkg?.BrandColor;
+
+                // Sin inicial configurada, la primera letra del nombre. «7-Zip» la configura a
+                // mano porque la útil es el 7.
+                CurrentBrandInitial = pkg?.BrandInitial
+                    ?? (p.DisplayName.Length > 0 ? p.DisplayName[..1].ToUpperInvariant() : null);
             }
 
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
@@ -1362,17 +1464,42 @@ public sealed partial class MainViewModel : ObservableObject
             return null;
         }
 
+        // ANTES de hacer nada: ¿hace falta? Leer el predeterminado actual sí se puede (lo que
+        // Windows bloquea es escribirlo). Si Chrome ya es el navegador, no hay nada que
+        // configurar ni ventana que abrir.
+        //
+        // Esto salió de un reporte concreto: Chrome ya estaba instalado, la app igual abrió la
+        // pantalla de Configuración, y el técnico tuvo que cerrarla. Molestar con una ventana
+        // para algo que ya estaba bien es peor que no hacer nada.
+        DefaultAppStatus browser = chromeReady ? _defaultApps.GetBrowserStatus() : new(true, null);
+        DefaultAppStatus pdf = acrobatReady ? _defaultApps.GetPdfStatus() : new(true, null);
+
+        if (browser.IsExpected == true && pdf.IsExpected == true)
+        {
+            return "Chrome y Acrobat Reader ya estaban como predeterminados: no hizo falta tocar nada.";
+        }
+
         InstallProgressLabel = "Configurando programas predeterminados…";
 
         DefaultAppsResult defaults = await _defaultApps
             .ApplyAsync(chromeReady, acrobatReady, ct ?? CancellationToken.None);
 
-        // Abrir la página del programa en Configuración, para que el clic de confirmación sea uno
-        // solo en vez de navegar el menú. El parámetro registeredAppUser lo entiende Windows 11;
-        // en Windows 10 cae en la pantalla general, que también sirve.
-        OpenDefaultApps(chromeReady ? "Google Chrome" : "Adobe Acrobat Reader");
+        // NO se abre ninguna ventana por nuestra cuenta. Windows no permite que un programa
+        // cambie el predeterminado del perfil abierto, pero abrirle Configuración sin que lo pida
+        // es interrumpirlo en medio de su trabajo. Se le dice qué falta y queda el botón
+        // «Predeterminados» para cuando él decida.
+        var pending = new List<string>();
+        if (chromeReady && browser.IsExpected != true) { pending.Add("el navegador"); }
+        if (acrobatReady && pdf.IsExpected != true) { pending.Add("los PDF"); }
 
-        return defaults.Detail;
+        if (pending.Count == 0)
+        {
+            return defaults.Detail;
+        }
+
+        return $"{defaults.Detail} En este usuario falta confirmar {string.Join(" y ", pending)}: " +
+               "Windows no deja que un programa lo cambie solo. Usá el botón «Predeterminados» " +
+               "cuando quieras hacerlo, son dos clics.";
     }
 
     /// <summary>
@@ -1555,6 +1682,73 @@ public sealed partial class MainViewModel : ObservableObject
             _ => "info",
         });
 
+    /// <summary>
+    /// Arma el resumen de lo que necesita atención — lo que se ve al abrir la app.
+    /// </summary>
+    /// <remarks>
+    /// <para>Doce condiciones en verde más los hallazgos más lo no determinado es demasiado para
+    /// una pantalla de entrada: el técnico tiene que leer todo para encontrar lo que importa. Acá
+    /// queda solo lo grave, y el detalle completo sigue a un clic.</para>
+    ///
+    /// <para><b>Lo no determinado entra entero, sin filtrar.</b> Es lo primero que se recortaría
+    /// para que el resumen quede más limpio, y es justo lo que no se puede recortar: una
+    /// comprobación que falló no es evidencia de que el equipo esté sano.</para>
+    /// </remarks>
+    private void BuildAttentionSummary()
+    {
+        AttentionRows.Clear();
+
+        static bool Grave(ReportRow r) => r.Kind is "crit" or "warn";
+
+        // Orden: lo crítico primero, después lo de advertencia, y al final lo que no se midió.
+        foreach (ReportRow row in ChecklistRows.Concat(SoftwareRows).Concat(HardwareRows)
+                     .Where(Grave)
+                     .OrderByDescending(r => r.Kind == "crit"))
+        {
+            AttentionRows.Add(row);
+        }
+
+        foreach (ReportRow row in UndeterminedRows)
+        {
+            AttentionRows.Add(row);
+        }
+
+        ReviewedCount = ChecklistRows.Count;
+        GoodCount = ChecklistRows.Count(r => r.Kind == "ok");
+
+        Headline = BuildHeadline();
+        DecidePrimaryAction();
+    }
+
+    /// <summary>El titular del inicio. Dice lo que hay, sin dramatizar ni tranquilizar de más.</summary>
+    private string BuildHeadline()
+    {
+        if (FixesBlocked)
+        {
+            return "El disco está fallando: hay que respaldar antes de tocar nada";
+        }
+
+        int graves = AttentionRows.Count(r => r.Kind is "crit" or "warn");
+        int sinMedir = UndeterminedRows.Count;
+
+        if (graves == 0 && sinMedir == 0)
+        {
+            return "El equipo está bien: no hay nada que necesite atención";
+        }
+
+        if (graves == 0)
+        {
+            // Sin hallazgos pero con cosas sin medir: no se dice «está todo bien».
+            return sinMedir == 1
+                ? "Nada que arreglar, pero 1 cosa no se pudo medir"
+                : $"Nada que arreglar, pero {sinMedir} cosas no se pudieron medir";
+        }
+
+        return graves == 1
+            ? "Encontramos 1 cosa para mejorar"
+            : $"Encontramos {graves} cosas para mejorar";
+    }
+
     private void NotifyReportChanged()
     {
         OnPropertyChanged(nameof(HasSoftwareRows));
@@ -1562,6 +1756,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUndeterminedRows));
         OnPropertyChanged(nameof(HasChecklistRows));
         OnPropertyChanged(nameof(HasChecklistCompareRows));
+        OnPropertyChanged(nameof(HasAttentionRows));
     }
 
     // ---- Checklist en pantalla ----------------------------------------------------------------

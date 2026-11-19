@@ -175,6 +175,49 @@
         </Setter>
     </Style>
 
+    <!--
+        Acción secundaria como enlace, sin caja. Para lo que tiene que estar disponible pero no
+        competir con la acción principal: cinco botones del mismo peso en una fila hacen que
+        ninguno destaque, y el técnico tiene que leerlos todos para encontrar el que buscaba.
+    -->
+    <Style x:Key="LinkButton" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        El único botón relleno de la pantalla de inicio. Más grande que PrimaryButton justamente
+        porque está solo: cuando hay un único lugar donde hacer clic, ese lugar tiene que ser
+        obvio sin leer nada.
+    -->
+    <Style x:Key="HeroButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Padding" Value="28,16" />
+        <Setter Property="MinWidth" Value="260" />
+    </Style>
+
     <!-- Botón secundario: solo contorno. -->
     <Style x:Key="GhostButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
