@@ -100,3 +100,34 @@ public sealed class HexToBrushConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+/// <summary>
+/// Convierte la ruta de un instalador en su icono, para mostrarlo como logo del programa.
+/// </summary>
+/// <remarks>
+/// La extracción vive acá y no en el ViewModel porque <c>BitmapSource</c> es un tipo de WPF: el
+/// ViewModel tiene que compilarse sin WPF para que las pruebas end-to-end corran desde cualquier
+/// sistema. Si no se puede sacar el icono devuelve <c>null</c> y la vista cae al monograma.
+/// </remarks>
+public sealed class InstallerPathToIconConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is string path ? InstallerIcon.TryExtract(path) : null;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// <c>true</c> cuando el valor es nulo. Se usa para poner la barra de una fila en modo
+/// indeterminado mientras todavía no hay bytes que contar: sin total conocido, un porcentaje
+/// sería inventado.
+/// </summary>
+public sealed class NullToTrueConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is null;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}

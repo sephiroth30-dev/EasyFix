@@ -17,6 +17,62 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.16.0] — 2026-11-19
+
+Reporte: «no instaló nada porque falla el winget». Esta versión ataca esa dependencia de raíz.
+
+### Cambiado — 7 de 10 programas ya no necesitan winget
+
+Si winget falla o no está, antes caía casi todo. Ahora **Chrome, 7-Zip, RustDesk, Notepad++,
+Firefox y los dos Visual C++ se bajan de su origen oficial**, sin pasar por winget.
+
+Las fuentes se **verificaron con una petición real** antes de configurarlas, no se sacaron de
+memoria:
+
+| Programa | Origen | Verificado |
+|---|---|---|
+| Notepad++ | GitHub `notepad-plus-plus` | `npp.8.9.9.1.Installer.x64.exe`, único que matchea |
+| Visual C++ x64/x86 | `aka.ms/vs/17/release/` | 200, redirige a `download.visualstudio.microsoft.com` |
+| Firefox | `download.mozilla.org` | 200, redirige al CDN de Mozilla |
+
+Quedan por winget: Acrobat Reader, VLC y AnyDesk — no se les encontró una URL oficial estable, y
+poner una sin verificar sería adivinar.
+
+### Agregado — avance por programa, no una sola barra
+
+Cada fila muestra **su propia barrita** con los MB que lleva. Una barra global no dice cuál está
+tardando ni cuánto le falta al que está en curso.
+
+### Agregado — el logo real de cada programa
+
+Sale del **instalador que se acaba de descargar**: es el logo auténtico, está en disco justo
+cuando hace falta mostrarlo, y no implica empaquetar binarios de marcas ajenas ni bajar nada
+extra. Si no se puede sacar (paquetes de winget, instaladores sin icono) queda el monograma.
+
+### Corregido
+
+- **El avance de las descargas directas se descartaba.** Chrome y RustDesk bajaban sus MB sin
+  mostrar nada — mismo fallo que ya se había corregido para el bootstrap de winget, en otro lugar.
+- **Responsive**: las columnas eran de ancho fijo, así que al maximizar el espacio extra quedaba
+  vacío. Ahora son proporcionales, con mínimos para que no se aplasten en ventana chica y topes
+  para que las líneas no se vuelvan incómodas de leer.
+
+### Nota de diseño: una guarda que hizo su trabajo
+
+Al agregar el logo puse un `BitmapSource` —tipo de WPF— en el `MainViewModel`, y el proyecto de
+pruebas dejó de compilar: compila los fuentes del ViewModel **sin** WPF justamente para poder
+correr desde cualquier sistema.
+
+El error era mío, no de la prueba: el ViewModel ahora guarda la **ruta** del instalador y la
+conversión a imagen vive en un converter, donde corresponde. La guarda avisó antes de que esto
+llegara a un equipo.
+
+**Probado:** 612 pruebas (592 Core + 20 App), build Release 0 warnings.
+**SIN VERIFICAR en Windows:** la extracción del icono es P/Invoke a `shell32` — ningún build
+valida eso. Si falla, se ve el monograma; nunca rompe una instalación.
+
+---
+
 ## [0.15.0] — 2026-11-19
 
 Toda la tanda salió de usar la app en un equipo real. El pedido de fondo: **menos texto, más

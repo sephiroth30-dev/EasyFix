@@ -65,6 +65,45 @@ public sealed partial class AppChoice : ObservableObject
     [ObservableProperty]
     private bool _isAlreadyPresent;
 
+    /// <summary>
+    /// Avance de ESTE programa, de 0 a 100. Se muestra como una barrita en su propia fila.
+    /// </summary>
+    /// <remarks>
+    /// Una sola barra global para toda la tanda no dice cuál de los programas está tardando ni
+    /// cuánto le falta al que está en curso. Con la barra en la fila, el técnico ve de un vistazo
+    /// qué se está bajando y cuánto va.
+    /// </remarks>
+    [ObservableProperty]
+    private double _progressPercent;
+
+    /// <summary><c>true</c> mientras este programa está descargándose o instalándose.</summary>
+    [ObservableProperty]
+    private bool _isWorking;
+
+    /// <summary>Avance en texto para esta fila: «12 MB de 28 MB».</summary>
+    [ObservableProperty]
+    private string? _progressDetail;
+
+    /// <summary>Pone la fila en curso, con avance indeterminado hasta que haya bytes que contar.</summary>
+    public void BeginWork()
+    {
+        IsWorking = true;
+        ProgressPercent = 0;
+        ProgressDetail = null;
+    }
+
+    public void ReportProgress(double percent, string? detail)
+    {
+        ProgressPercent = Math.Clamp(percent, 0, 100);
+        ProgressDetail = detail;
+    }
+
+    public void EndWork()
+    {
+        IsWorking = false;
+        ProgressDetail = null;
+    }
+
     public void MarkInstalling()
     {
         StatusDetail = null;

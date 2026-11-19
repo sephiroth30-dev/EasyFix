@@ -22,6 +22,8 @@
         <vm:InverseBooleanToVisibilityConverter x:Key="InvertVis" />
         <BooleanToVisibilityConverter x:Key="BoolVis" />
         <vm:HexToBrushConverter x:Key="HexBrush" />
+        <vm:InstallerPathToIconConverter x:Key="InstallerIcon" />
+        <vm:NullToTrueConverter x:Key="NullToTrue" />
 
         <!-- Una fila del reporte.
              Sin la franja de color vertical que había antes a la izquierda: leída de lejos
@@ -71,6 +73,10 @@
         <!-- Un programa de la lista: casilla, nombre, nota y estado. -->
         <DataTemplate x:Key="AppRowTemplate" DataType="{x:Type vm:AppChoice}">
             <Grid Margin="0,0,0,1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <!-- Lo que el análisis encontró ya instalado se ve atenuado: se distingue de un
                      vistazo sin tener que leer el estado de cada fila. -->
                 <Grid.Style>
@@ -107,6 +113,19 @@
                                Visibility="{Binding StatusDetail, Converter={StaticResource EmptyVis}}" />
                 </StackPanel>
 
+                <!-- Avance de ESTE programa. Una barra global no dice cuál está tardando ni
+                     cuánto le falta; en la fila se ve de un vistazo. -->
+                <StackPanel Grid.Column="2" Grid.Row="1" Margin="0,0,0,10"
+                            Visibility="{Binding IsWorking, Converter={StaticResource BoolVis}}">
+                    <ProgressBar Style="{StaticResource ProgressBarStyle}" Height="4"
+                                 Minimum="0" Maximum="100"
+                                 Value="{Binding ProgressPercent, Mode=OneWay}"
+                                 IsIndeterminate="{Binding ProgressDetail, Converter={StaticResource NullToTrue}}" />
+                    <TextBlock Text="{Binding ProgressDetail}" Style="{StaticResource MutedText}"
+                               FontSize="10.5" Margin="0,4,0,0"
+                               Visibility="{Binding ProgressDetail, Converter={StaticResource EmptyVis}}" />
+                </StackPanel>
+
                 <TextBlock Grid.Column="3" Text="{Binding Status}" FontFamily="Consolas"
                            FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0"
                            Visibility="{Binding Status, Converter={StaticResource EmptyVis}}">
@@ -125,7 +144,7 @@
                     </TextBlock.Style>
                 </TextBlock>
 
-                <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource BorderBrush}"
+                <Border Grid.ColumnSpan="4" Grid.RowSpan="2" BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="0,0,0,1" VerticalAlignment="Bottom" />
             </Grid>
         </DataTemplate>
@@ -196,14 +215,18 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+                <!-- Proporcional, no fija: al maximizar, las dos columnas crecen en vez de
+                     dejar el espacio extra vacío. El MinWidth evita que la de atención se
+                     aplaste en una ventana chica, y el MaxWidth que se estire tanto que las
+                     líneas se vuelvan incómodas de leer. -->
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="3*" />
                     <ColumnDefinition Width="48" />
-                    <ColumnDefinition Width="300" />
+                    <ColumnDefinition Width="2*" MinWidth="290" MaxWidth="560" />
                 </Grid.ColumnDefinitions>
 
                 <!-- ===== Centro: identidad del equipo, titular y la acción ===== -->
-                <StackPanel Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" MaxWidth="480">
+                <StackPanel Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" MaxWidth="620">
                     <TextBlock Text="{Binding SystemSummary}" Style="{StaticResource MutedText}"
                                FontSize="12.5" TextAlignment="Center" Opacity="0.85" />
 
@@ -276,7 +299,7 @@
 
             <!-- ===== 2. Analizando ===== -->
             <StackPanel Margin="28,24,28,24" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        MaxWidth="460"
+                        MaxWidth="560"
                         Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Scanning}">
                 <TextBlock Text="{Binding ProgressLabel}" Style="{StaticResource TitleText}"
                            FontSize="15" Margin="0,4,0,14" />
@@ -431,9 +454,9 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="3*" />
                     <ColumnDefinition Width="44" />
-                    <ColumnDefinition Width="320" />
+                    <ColumnDefinition Width="2*" MinWidth="300" MaxWidth="480" />
                 </Grid.ColumnDefinitions>
 
                 <!-- ===== Columna izquierda: el protagonista ===== -->
@@ -448,11 +471,31 @@
                              instalando, así que no hay ejecutable del que sacar el icono, y
                              empaquetar logos ajenos traería binarios de marcas al repo.
                              Entra con una animación corta para que se note el cambio de programa. -->
+                        <!-- El logo REAL del programa, sacado del instalador recién descargado.
+                             Si no hay icono (paquetes de winget, o un instalador sin icono) se
+                             ve el monograma de abajo. -->
+                        <Image Source="{Binding CurrentLogoPath, Converter={StaticResource InstallerIcon}}"
+                               Width="72" Height="72" HorizontalAlignment="Left" Margin="0,0,0,22"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Visibility="{Binding CurrentLogoPath, Converter={StaticResource EmptyVis}}" />
+
                         <Border Width="68" Height="68" CornerRadius="34"
                                 HorizontalAlignment="Left" Margin="0,0,0,22"
                                 Background="{Binding CurrentBrandColor, Converter={StaticResource HexBrush}}"
-                                Visibility="{Binding CurrentBrandInitial, Converter={StaticResource EmptyVis}}"
                                 RenderTransformOrigin="0.5,0.5">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding CurrentLogoPath}" Value="{x:Null}" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <Border.RenderTransform>
                                 <ScaleTransform x:Name="MonogramScale" ScaleX="1" ScaleY="1" />
                             </Border.RenderTransform>
@@ -500,13 +543,13 @@
                                    FontFamily="{StaticResource UiFont}" FontSize="15"
                                    Foreground="{StaticResource TextMutedBrush}"
                                    TextWrapping="Wrap" LineHeight="26"
-                                   Margin="0,20,0,0" MaxWidth="560"
+                                   Margin="0,20,0,0" MaxWidth="780"
                                    HorizontalAlignment="Left"
                                    Visibility="{Binding CurrentStory, Converter={StaticResource EmptyVis}}" />
 
                         <!-- Progreso: fino y discreto, debajo de la historia. No compite con
                              ella, pero está siempre a la vista sin scrollear. -->
-                        <StackPanel Margin="0,34,0,0" MaxWidth="560" HorizontalAlignment="Left">
+                        <StackPanel Margin="0,34,0,0" MaxWidth="780" HorizontalAlignment="Left">
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -605,7 +648,7 @@
 
             <!-- ===== 5. Reparando ===== -->
             <StackPanel Margin="28,24,28,24" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        MaxWidth="460"
+                        MaxWidth="560"
                         Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Repairing}">
                 <TextBlock Text="{Binding RunningCategoryLabel}" Style="{StaticResource TitleText}"
                            FontSize="15" Margin="0,4,0,4" />
@@ -663,7 +706,7 @@
                      evidencia —cada condición antes y después— cuando la corrida fue completa, y
                      el resultado del fix cuando fue uno solo. -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
-                    <StackPanel MaxWidth="620" HorizontalAlignment="Left">
+                    <StackPanel MaxWidth="840" HorizontalAlignment="Left">
                         <ItemsControl ItemsSource="{Binding ChecklistCompareRows}"
                                       ItemTemplate="{StaticResource ReportRowTemplate}"
                                       Visibility="{Binding HasChecklistCompareRows, Converter={StaticResource BoolVis}}" />
@@ -723,7 +766,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MaxWidth="600" />
+                    <ColumnDefinition Width="*" MaxWidth="840" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,4,0,10">

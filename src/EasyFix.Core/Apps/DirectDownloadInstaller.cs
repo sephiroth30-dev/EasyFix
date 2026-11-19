@@ -115,10 +115,17 @@ public sealed class DirectDownloadInstaller
     /// Descarga e instala en silencio. Devuelve un <see cref="WingetResult"/> para que el reporte
     /// trate igual a los dos caminos de instalación.
     /// </summary>
+    /// <param name="onInstallerDownloaded">
+    /// Se invoca con la ruta del instalador ya en disco, antes de ejecutarlo. La interfaz lo usa
+    /// para sacarle el icono real del programa — el archivo está ahí justo cuando hace falta
+    /// mostrarlo, y es la única fuente del logo auténtico que no implica empaquetar binarios de
+    /// marcas ajenas ni bajar nada extra.
+    /// </param>
     public async Task<WingetResult> InstallAsync(
         WingetPackage package,
         IProgress<string>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? onInstallerDownloaded = null)
     {
         ArgumentNullException.ThrowIfNull(package);
 
@@ -193,6 +200,16 @@ public sealed class DirectDownloadInstaller
 
             return new WingetResult(package.Id, WingetOutcome.Failed,
                 $"No se pudo descargar {package.Name}: {ex.Message}", null);
+        }
+
+        // El icono sale del instalador descargado, antes de correrlo: después se borra.
+        try
+        {
+            onInstallerDownloaded?.Invoke(installerPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo leer el icono de {Package}.", package.Id);
         }
 
         try
@@ -462,10 +479,12 @@ public sealed class HttpFileDownloader : IFileDownloader, IDisposable
 
                 lastReport = now;
 
+                // El prefijo «[nn]» lo consume la interfaz para mover la barrita de esta fila.
+                // Es un canal de texto y agregar un tipo nuevo solo para esto no se justifica;
+                // si el prefijo no está, la fila simplemente queda indeterminada.
                 progress?.Report(total is long size && size > 0
-                    ? $"Descargando… {received / 1024 / 1024} MB de {size / 1024 / 1024} MB " +
-                      $"({100.0 * received / size:0} %)"
-                    : $"Descargando… {received / 1024 / 1024} MB");
+                    ? $"[{100.0 * received / size:0}] {received / 1024 / 1024} MB de {size / 1024 / 1024} MB"
+                    : $"{received / 1024 / 1024} MB descargados");
             }
         }
 

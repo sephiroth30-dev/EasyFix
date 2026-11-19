@@ -669,6 +669,19 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _currentBrandInitial;
 
+    /// <summary>
+    /// Ruta del instalador del programa en curso. La vista le saca el icono real para mostrarlo
+    /// como logo; <c>null</c> cuando el paquete viene por winget y no hay archivo, y ahí se ve
+    /// el monograma.
+    /// </summary>
+    /// <remarks>
+    /// Se guarda la RUTA y no la imagen a propósito: <c>BitmapSource</c> es un tipo de WPF, y el
+    /// ViewModel tiene que poder compilarse sin WPF para que las pruebas end-to-end corran desde
+    /// cualquier sistema. Convertir ruta → imagen es trabajo de presentación.
+    /// </remarks>
+    [ObservableProperty]
+    private string? _currentLogoPath;
+
     public int ConfiguredPackageCount => _options.WingetPackages.Count;
 
     // ---- Analizar ---------------------------------------------------------------------------
@@ -1274,6 +1287,7 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentStoryTitle = null;
         _pendingStory = null;
         _storyShownAt = DateTimeOffset.MinValue;
+        CurrentLogoPath = null;
         foreach (AppChoice app in selected) { app.Status = null; }
 
         var byId = selected.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -1317,10 +1331,34 @@ public sealed partial class MainViewModel : ObservableObject
                 ShowStoryFor(p.PackageId, p.DisplayName);
             }
 
+            // El icono real del programa sale del instalador recién descargado. Si no se pudo
+            // sacar, queda el monograma: un logo es decoración y nunca puede frenar nada.
+            if (p.InstallerPath is { } installerPath)
+            {
+                CurrentLogoPath = installerPath;
+                return;
+            }
+
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
 
-            if (p.Finished is null) { app.MarkInstalling(); }
-            else { app.MarkResult(p.Finished); }
+            if (p.Finished is null)
+            {
+                app.MarkInstalling();
+                app.BeginWork();
+
+                // El descargador antepone «[nn]» con el porcentaje. Sin ese prefijo la barrita
+                // queda indeterminada, que es lo honesto: no hay avance que mostrar.
+                if (p.Detail is { } detail)
+                {
+                    (double percent, string text) = ParseRowProgress(detail);
+                    app.ReportProgress(percent, text);
+                }
+            }
+            else
+            {
+                app.EndWork();
+                app.MarkResult(p.Finished);
+            }
         });
 
         try
@@ -1706,6 +1744,31 @@ public sealed partial class MainViewModel : ObservableObject
             Severity.Warning => "warn",
             _ => "info",
         });
+
+
+    /// <summary>
+    /// Separa el porcentaje del texto en una línea de avance con formato «[43] 12 MB de 28 MB».
+    /// </summary>
+    /// <remarks>
+    /// Sin el prefijo devuelve 0 y el texto tal cual: la barrita queda sin avance, que es lo
+    /// correcto cuando no hay un total conocido contra el cual medir.
+    /// </remarks>
+    private static (double Percent, string Text) ParseRowProgress(string detail)
+    {
+        if (detail.StartsWith('[') && detail.IndexOf(']') is int close and > 1)
+        {
+            string number = detail[1..close];
+            string rest = detail[(close + 1)..].Trim();
+
+            if (double.TryParse(number, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out double percent))
+            {
+                return (percent, rest);
+            }
+        }
+
+        return (0, detail);
+    }
 
     /// <summary>Cuándo se puso la historia que está en pantalla, para no pisarla antes de tiempo.</summary>
     private DateTimeOffset _storyShownAt = DateTimeOffset.MinValue;

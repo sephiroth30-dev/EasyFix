@@ -10,12 +10,22 @@ namespace EasyFix.Core.Apps;
 /// <param name="Index">Cuál de la tanda, empezando en 1.</param>
 /// <param name="Total">Cuántos en total.</param>
 /// <param name="Finished">Resultado, cuando ya terminó. <c>null</c> mientras está en curso.</param>
+/// <param name="Detail">Línea de avance del paquete en curso (ej. «12 MB de 28 MB»).</param>
+/// <param name="InstallerPath">
+/// Ruta del instalador ya descargado, antes de ejecutarlo. La interfaz le saca el icono real del
+/// programa: es la única fuente del logo auténtico que no implica empaquetar binarios de marcas
+/// ajenas ni bajar nada extra.
+/// </param>
 public sealed record InstallProgress(
     string PackageId,
     string DisplayName,
     int Index,
     int Total,
-    WingetResult? Finished = null);
+    WingetResult? Finished = null)
+{
+    public string? Detail { get; init; }
+    public string? InstallerPath { get; init; }
+}
 
 /// <summary>Resultado de actualizar todo lo que tuviera versión nueva.</summary>
 /// <param name="Succeeded">La operación terminó bien. «No había nada que actualizar» también es éxito.</param>
@@ -302,9 +312,18 @@ public sealed class WingetService
             if (package.Direct is not null)
             {
                 // Configurado para bajarse de su origen oficial: no pasa por winget en absoluto.
-                var textProgress = new Progress<string>(_ => { });
+                // El progreso de la descarga directa iba a un sumidero: por eso Chrome y
+                // RustDesk no mostraban avance mientras bajaban sus MB.
+                var textProgress = new Progress<string>(message =>
+                    progress?.Report(new InstallProgress(
+                        package.Id, package.Name, i + 1, queue.Count, Finished: null)
+                    { Detail = message }));
+
                 result = await _directInstaller
-                    .InstallAsync(package, textProgress, ct)
+                    .InstallAsync(package, textProgress, ct,
+                        onInstallerDownloaded: path => progress?.Report(new InstallProgress(
+                            package.Id, package.Name, i + 1, queue.Count, Finished: null)
+                        { InstallerPath = path }))
                     .ConfigureAwait(false);
             }
             else
