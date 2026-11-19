@@ -17,6 +17,56 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.13.0] — 2026-11-19
+
+### Corregido — RustDesk abría una ventana de Windows Installer y fallaba (0x667)
+
+`0x667` = 1639 = `ERROR_INVALID_COMMAND_LINE`. RustDesk declara `silentArgs`
+`["--silent-install"]`, que es un modificador de su instalador **.EXE**. Pero el paquete prefiere
+el **.MSI**, y esos argumentos se agregaban igual después de `/i <ruta> /qn /norestart`. `msiexec`
+recibe algo que no entiende, devuelve 1639 **y abre su ventana de ayuda** — eso es la «ventana
+rara» que aparecía. Un solo bug explicaba los dos síntomas.
+
+Ahora los `silentArgs` se aplican **solo a instaladores .EXE**. Para un MSI, `/qn /norestart` ya
+es todo el modo silencioso.
+
+### Corregido — «Buscar controladores» parecía no responder
+
+Exigía haber analizado antes y contestaba «Primero hay que analizar el equipo», lo que se lee
+como que el botón está roto. **El análisis ahora corre solo al abrir la app**, como un inventario:
+es de solo lectura, tarda segundos, y no hay motivo para pedirlo a mano.
+
+**Nota honesta sobre el diagnóstico.** La primera hipótesis fue que `IsBusy` quedaba trabado
+(`AnalyzeCommand` es el único comando sin `CanExecute`, y era el único que seguía respondiendo —
+encajaba perfecto). Se escribieron 8 pruebas end-to-end para reproducirlo y **todas pasaron**: no
+estaba trabado. Se reporta la hipótesis fallida en vez de ocultarla, y no se tocó ninguna prueba
+para que diera el resultado esperado.
+
+### Agregado — la capa de pruebas que faltaba
+
+Los cuatro fallos que llegaron a equipos de clientes (RustDesk, Chrome reinstalándose, 7-Zip
+bloqueado, botones que parecían muertos) **compilaban limpio y con todos los tests en verde**. El
+patrón era siempre el mismo: los tests cubrían cada pieza por separado y nada recorría el flujo
+como lo recorre una persona.
+
+- **`tests/EasyFix.App.Tests`** maneja el `MainViewModel` apretando comandos en orden real. La
+  invariante que fija: *pase lo que pase, al terminar una operación todos los comandos quedan
+  ejecutables*. Cubre instalación que falla, que revienta, sin internet, sin nada marcado, y dos
+  operaciones seguidas.
+- **No referencia el proyecto WPF**, a propósito: eso arrastra `Microsoft.WindowsDesktop.App`, que
+  no existe en macOS, y las pruebas morían al arrancar — habrían corrido solo en el CI de Windows,
+  cuando ya es tarde para corregir. Compila los fuentes del ViewModel directamente, que se puede
+  porque no tocan WPF. Dos pruebas mantienen esa condición.
+- **`.claude/skills/verify`**: el procedimiento antes de publicar, con tres reglas — nunca
+  modificar una prueba para que pase, tres intentos y se para avisando, y lo que no se pudo
+  verificar se dice.
+
+**Probado:** 598 pruebas (587 Core + 11 App), build Release 0 warnings.
+**SIN VERIFICAR en Windows:** que el MSI de RustDesk instale con `/qn`, y que el análisis
+automático al abrir no demore la aparición de la ventana.
+
+---
+
 ## [0.12.2] — 2026-11-19
 
 Reporte real: «lleva más de 10 minutos instalando winget» y, al revisar, **7-Zip nunca se
