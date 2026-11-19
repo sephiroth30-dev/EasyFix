@@ -143,8 +143,23 @@ public sealed class WingetBootstrapper : IWingetBootstrapper
         {
             progress?.Report("Instalando winget…");
 
-            ProcessResult result = await RunAddAppxPackageAsync(bundlePath, vclibsPath, ct)
-                .ConfigureAwait(false);
+            ProcessResult result;
+            try
+            {
+                result = await RunAddAppxPackageAsync(bundlePath, vclibsPath, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Si powershell.exe ni siquiera arranca (bloqueado por AppLocker/WDAC/EDR en un
+                // equipo corporativo gestionado, el escenario más plausible), esto tira una
+                // excepción real en vez de un ProcessResult fallido. Antes escapaba sin capturar y
+                // abortaba TODA la tanda de instalación — un técnico queriendo instalar cuatro
+                // programas se quedaba sin ninguno por un fallo que solo afectaba a winget.
+                _logger.LogError(ex, "No se pudo ejecutar Add-AppxPackage.");
+                return new WingetBootstrapResult(false,
+                    $"No se pudo ejecutar el instalador de winget: {ex.Message}");
+            }
 
             // La única prueba de que funcionó es que winget aparezca después. Que Add-AppxPackage
             // devuelva código 0 no alcanza: mismo principio que la reparación de fuentes, que una vez
@@ -216,9 +231,12 @@ public sealed class WingetBootstrapper : IWingetBootstrapper
             ? raw
             : $"Add-AppxPackage devolvió el código {result.ExitCode} sin más detalle.";
 
-        // El caso documentado y SIN VERIFICAR: falta Microsoft.UI.Xaml y no se intenta resolver solo.
-        if (message.Contains("Xaml", StringComparison.OrdinalIgnoreCase) ||
-            message.Contains("9007", StringComparison.Ordinal)) // familia de códigos de dependencia Appx
+        // El caso documentado y SIN VERIFICAR: falta Microsoft.UI.Xaml y no se intenta resolver
+        // solo. Solo el nombre de la dependencia, que Windows sí imprime en el mensaje real de
+        // Add-AppxPackage cuando falta — un código numérico que nadie confirmó en un equipo real
+        // estuvo acá antes y se sacó: un heurístico sin fuente puede dar tanto falso positivo como
+        // falso negativo, y encima el texto de abajo afirmaría una causa que no se verificó.
+        if (message.Contains("Xaml", StringComparison.OrdinalIgnoreCase))
         {
             return "No se pudo instalar winget: falta una dependencia adicional " +
                    "(probablemente Microsoft.UI.Xaml) que este equipo no tiene y que no se puede " +

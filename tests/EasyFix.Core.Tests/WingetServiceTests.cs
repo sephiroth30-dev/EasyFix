@@ -443,6 +443,69 @@ public sealed class WingetServiceTests
         await Build(runner).InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
     }
 
+    [Fact]
+    public async Task SinInternetYSinWinget_LaCompuertaDeRedGanaYNuncaLlamaAlBootstrap()
+    {
+        // La compuerta de red se evalúa ANTES del loop de paquetes, así que estructuralmente no
+        // hay forma de llegar al bootstrap sin internet. Este test fija esa garantía con código,
+        // no solo con la lectura del fuente.
+        var locator = new MutableLocator { Path = null };
+        var runner = new FakeRunner();
+
+        IReadOnlyList<WingetResult> results = await Build(
+                runner,
+                locator: locator,
+                bootstrapper: FakeWingetBootstrapper.Forbidden(),
+                connectivity: FakeConnectivityCheck.Offline())
+            .InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
+
+        Assert.Single(results);
+        Assert.Empty(runner.InstallCalls);
+    }
+
+    [Fact]
+    public async Task BootstrapperQueRevienta_NoAbortaLaTanda_SeTrataComoFalloDeEsePaquete()
+    {
+        // Hallazgo real de una revisión adversarial: si IWingetBootstrapper tira una excepción en
+        // vez de devolver un resultado (ej. powershell.exe bloqueado por AppLocker/EDR en un
+        // equipo corporativo), eso NO puede cortar la tanda entera — un técnico instalando cuatro
+        // programas no puede quedarse sin ninguno por un fallo que solo afecta a winget.
+        var locator = new MutableLocator { Path = null };
+        var runner = new FakeRunner();
+        var bootstrapper = new FakeWingetBootstrapper(
+            () => throw new InvalidOperationException("powershell.exe bloqueado por política."));
+
+        IReadOnlyList<WingetResult> results = await Build(
+                runner, locator: locator, bootstrapper: bootstrapper)
+            .InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
+
+        WingetResult result = Assert.Single(results);
+        Assert.Equal(WingetOutcome.WingetMissing, result.Outcome);
+    }
+
+    [Fact]
+    public async Task BootstrapExitoso_QuedaUnaNotaVisibleParaElReporte()
+    {
+        // Antes: si el bootstrap funcionaba, el paquete instalado no mostraba ningún detalle (el
+        // motivo solo se ve cuando algo falla) y la instalación de winget quedaba 100 % muda para
+        // quien mira la pantalla. LastBootstrapNote es lo que MainViewModel antepone al resumen.
+        var locator = new MutableLocator { Path = null };
+        var runner = new FakeRunner();
+        var bootstrapper = new FakeWingetBootstrapper(() =>
+        {
+            locator.Path = WingetPath;
+            return new WingetBootstrapResult(true, "winget instalado.");
+        });
+
+        WingetService service = Build(runner, locator: locator, bootstrapper: bootstrapper);
+        Assert.Null(service.LastBootstrapNote); // nada todavía: no corrió
+
+        await service.InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
+
+        Assert.NotNull(service.LastBootstrapNote);
+        Assert.Contains("instaló automáticamente", service.LastBootstrapNote, StringComparison.Ordinal);
+    }
+
     // ---- Configuración real -----------------------------------------------------------------
 
     [Fact]

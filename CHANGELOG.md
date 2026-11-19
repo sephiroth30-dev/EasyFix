@@ -17,6 +17,43 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.4] — 2026-11-18
+
+Revisión adversarial del bootstrap de winget de v0.9.3 (el cambio de mayor riesgo hasta ahora:
+instala software real sin confirmación, invoca PowerShell). Dos hallazgos importantes, corregidos
+antes de que llegaran a un equipo de cliente.
+
+### Corregido
+
+- **Una excepción de `Add-AppxPackage` podía abortar toda la tanda.** Si `powershell.exe` no
+  llegaba a correr (ej. bloqueado por AppLocker/WDAC/EDR en un equipo corporativo gestionado —
+  el escenario más plausible), la excepción escapaba sin capturar y el técnico se quedaba sin
+  instalar *ningún* programa de la tanda por un fallo que solo afectaba a winget. Ahora se trata
+  igual que cualquier otro paquete que falla: ese paquete reporta `WingetMissing`, el resto sigue.
+- **La instalación automática de winget era invisible en pantalla.** Cuando funcionaba, no había
+  ningún indicio en el reporte de que EasyFix instaló algo además de lo pedido — la fila del
+  paquete exitoso no muestra detalle (el motivo solo se ve ante un fallo). `WingetService` expone
+  ahora `LastBootstrapNote`, y el resumen final en pantalla lo antepone: el técnico sabe que pasó,
+  no solo el log.
+- **Se sacó un heurístico sin fuente.** `BuildFailureDetail` adivinaba «falta Microsoft.UI.Xaml»
+  también si el texto de error contenía «9007» — un número sin ningún HRESULT real de Appx que lo
+  respalde, ni una sola verificación en un equipo real. Queda solo el match por el nombre real de
+  la dependencia, que Windows sí imprime.
+- **El chequeo de HTTPS no cubría un downgrade por redirect.** Validaba el esquema de la URL de
+  entrada, pero `HttpClient` sigue redirects solo — si algún salto intermedio bajara a HTTP, no se
+  detectaba. Ahora se valida el esquema de la URL *final* de la cadena de redirects.
+
+### Agregado
+
+- **Tests directos de `WingetBootstrapper`** (antes solo se probaba indirecto, a través de un
+  doble, dentro de `WingetServiceTests`): 13 tests nuevos con dobles de descarga/proceso/
+  localización — incluido uno que fuerza una comilla simple en una ruta para confirmar que el
+  escaping de PowerShell la duplica en vez de romper el script.
+
+**Probado:** 531 tests (529 + 2 omitidos). Build Release, 0 warnings.
+
+---
+
 ## [0.9.3] — 2026-11-18
 
 Reporte de uso real: «Instalar programas» falló en un equipo nuevo porque faltaba winget, y

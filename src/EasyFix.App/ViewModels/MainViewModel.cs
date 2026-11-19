@@ -1115,9 +1115,16 @@ public sealed partial class MainViewModel : ObservableObject
                 selected.Select(a => a.Package).ToList(), progress, CancellationToken.None);
 
             InstallProgressLabel = null;
-            SetStatus(
-                WingetResultParser.Summarize(results),
-                warning: results.Any(r => !r.PackageAvailable));
+
+            // Si esta corrida tuvo que instalar winget primero, que quede dicho en el resumen
+            // final — no solo en el log. Cuando el paquete en curso termina bien, su fila no
+            // muestra ningún detalle (el motivo solo se ve ante un fallo), así que sin esto el
+            // técnico nunca se enteraba de que la app instaló algo además de lo que había pedido.
+            string summary = _winget.LastBootstrapNote is { } note
+                ? $"{note} {WingetResultParser.Summarize(results)}"
+                : WingetResultParser.Summarize(results);
+
+            SetStatus(summary, warning: results.Any(r => !r.PackageAvailable));
 
             foreach (WingetResult failed in results.Where(r => !r.PackageAvailable))
             {

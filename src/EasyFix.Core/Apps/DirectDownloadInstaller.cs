@@ -345,6 +345,17 @@ public sealed class HttpFileDownloader : IFileDownloader, IDisposable
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
             .ConfigureAwait(false);
 
+        // El chequeo de arriba solo mira la URL de ENTRADA. HttpClient sigue redirects solo
+        // (ej. el aka.ms de VCLibs), y si alguna vez un salto intermedio bajara a HTTP —un proxy
+        // corporativo interceptando, o un cambio de configuración del lado del servidor— el
+        // esquema de entrada ya no lo detecta. RequestMessage.RequestUri refleja la ÚLTIMA
+        // petición de la cadena de redirects, así que es el que hay que mirar.
+        if (response.RequestMessage?.RequestUri is { Scheme: not "https" } finalUri)
+        {
+            throw new InvalidOperationException(
+                $"La descarga terminó en '{finalUri}', que no es HTTPS. Se corta antes de guardar nada.");
+        }
+
         response.EnsureSuccessStatusCode();
 
         long? total = response.Content.Headers.ContentLength;

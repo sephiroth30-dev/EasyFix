@@ -54,6 +54,12 @@ public sealed class WingetService
     private bool _bootstrapAttempted;
 
     /// <summary>
+    /// Si esta corrida intentó instalar winget automáticamente, qué pasó — para que el técnico lo
+    /// vea en el resumen final, no solo en el log. <c>null</c> si no hizo falta.
+    /// </summary>
+    public string? LastBootstrapNote { get; private set; }
+
+    /// <summary>
     /// El catálogo quedó confirmado como ilegible: la reparación se hizo y no sirvió.
     /// </summary>
     /// <remarks>
@@ -128,6 +134,7 @@ public sealed class WingetService
 
         _sourceRepairAttempted = false;
         _bootstrapAttempted = false;
+        LastBootstrapNote = null;
         _catalogUnusable = null;
         _errorTable = null;
 
@@ -201,18 +208,50 @@ public sealed class WingetService
                     // vez de bloquear con un botón de solo diagnóstico.
                     _bootstrapAttempted = true;
 
+                    // "winget (no estaba instalado en este equipo)" como DisplayName hace que el
+                    // texto arriba de la barra lea "Instalando winget (no estaba instalado en
+                    // este equipo)…" — antes esto era 100 % silencioso: el técnico no tenía forma
+                    // de saber, mirando la pantalla, que la app estaba instalando un componente de
+                    // Windows en vez del programa que había marcado.
+                    const string BootstrapDisplayName = "winget (no estaba instalado en este equipo)";
                     progress?.Report(new InstallProgress(
-                        package.Id, package.Name, i + 1, packages.Count,
-                        Finished: null));
+                        "winget", BootstrapDisplayName, i + 1, packages.Count, Finished: null));
 
-                    WingetBootstrapResult bootstrap = await _bootstrapper
-                        .EnsureAvailableAsync(new Progress<string>(_ => { }), ct)
-                        .ConfigureAwait(false);
+                    WingetBootstrapResult bootstrap;
+                    try
+                    {
+                        bootstrap = await _bootstrapper
+                            .EnsureAvailableAsync(new Progress<string>(_ => { }), ct)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // IWingetBootstrapper no debería poder tirar, pero si alguna
+                        // implementación lo hace, que reviente ACÁ cortaría la tanda entera por
+                        // un fallo que solo afecta a winget — el mismo tipo de daño colateral que
+                        // InstallOneAsync ya se cuida de nunca causar.
+                        _logger.LogError(ex, "El bootstrap de winget reventó en vez de devolver un resultado.");
+                        bootstrap = new WingetBootstrapResult(false,
+                            $"Se interrumpió instalando winget: {ex.Message}");
+                    }
 
                     _logger.LogInformation(
                         "Bootstrap de winget: {Success}. {Detail}", bootstrap.Success, bootstrap.Detail);
 
                     winget = _locator.Find();
+
+                    // Nota visible para el reporte final, no solo para el log: si el paquete en
+                    // curso termina instalándose bien, la fila de ESE paquete no muestra ningún
+                    // detalle (el motivo solo se ve cuando algo falla), así que sin esto el
+                    // técnico nunca se enteraba, ni en pantalla ni en el resumen, de que antes se
+                    // instaló winget.
+                    LastBootstrapNote = winget is not null
+                        ? "winget no estaba instalado y se instaló automáticamente."
+                        : $"winget no estaba instalado; se intentó instalarlo automáticamente y no se pudo ({bootstrap.Detail})";
 
                     if (winget is null)
                     {
