@@ -336,8 +336,16 @@ public sealed class WingetService
                     WingetBootstrapResult bootstrap;
                     try
                     {
+                        // El progreso del bootstrap va A LA PANTALLA, no a un sumidero. Antes se
+                        // descartaba: el técnico veía «Instalando winget…» y después nada durante
+                        // minutos, sin poder distinguir «bajando» de «colgado». Se reporta como el
+                        // paquete en curso para que ocupe la línea de progreso que ya existe.
+                        var bootstrapProgress = new Progress<string>(message =>
+                            progress?.Report(new InstallProgress(
+                                "winget", message, i + 1, queue.Count, Finished: null)));
+
                         bootstrap = await _bootstrapper
-                            .EnsureAvailableAsync(new Progress<string>(_ => { }), ct)
+                            .EnsureAvailableAsync(bootstrapProgress, ct)
                             .ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)

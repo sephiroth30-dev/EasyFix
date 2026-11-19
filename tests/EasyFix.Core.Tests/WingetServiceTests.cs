@@ -647,6 +647,44 @@ public sealed class WingetServiceTests
     }
 
     [Fact]
+    public void TodaDescargaDirectaSabeComoDetectarSiYaEstaInstalada()
+    {
+        // Sin este dato, un paquete de descarga directa se reinstala SIEMPRE: es el bug que se
+        // reportó con Chrome. Los que van por winget no lo necesitan — winget lo detecta solo.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        var sinDeteccion = options.WingetPackages
+            .Where(p => p.Direct is not null)
+            .Where(p => string.IsNullOrWhiteSpace(p.Direct!.DetectDisplayName))
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.True(
+            sinDeteccion.Count == 0,
+            $"Estas descargas directas no tienen 'detectDisplayName': {string.Join(", ", sinDeteccion)}. " +
+            "Sin eso se reinstalan aunque ya estén.");
+    }
+
+    [Fact]
+    public void LosNombresDeDeteccionSonEspecificos()
+    {
+        // Un nombre corto o genérico haría que EasyFix crea que algo está instalado cuando no lo
+        // está, y lo saltee — el fallo sería silencioso y en la dirección peligrosa: el cliente
+        // se queda sin el programa.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        foreach (WingetPackage package in options.WingetPackages.Where(p => p.Direct?.DetectDisplayName is not null))
+        {
+            string name = package.Direct!.DetectDisplayName!;
+
+            Assert.True(
+                name.Trim().Length >= 5,
+                $"'{name}' (de {package.Name}) es demasiado corto para identificar un programa " +
+                "en el registro sin matchear otra cosa.");
+        }
+    }
+
+    [Fact]
     public void NoHayIdsDuplicadosEnLaConfiguracion()
     {
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));

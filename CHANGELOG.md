@@ -17,6 +17,45 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.12.2] — 2026-11-19
+
+Reporte real: «lleva más de 10 minutos instalando winget» y, al revisar, **7-Zip nunca se
+instaló**. Un solo problema con tres causas, las tres mías.
+
+### Corregido — se podía colgar 23 minutos sin decir nada
+
+- **El progreso del bootstrap de winget se tiraba a la basura.** Se le pasaba un
+  `Progress<string>` que descartaba todo, así que la pantalla decía «Instalando winget…» y después
+  silencio: imposible distinguir «bajando» de «colgado». Ahora cada mensaje llega a la pantalla.
+- **Las descargas no reportaban avance.** Se informaba el tamaño una sola vez y nada más hasta
+  terminar. Ahora hay progreso real por bytes, una vez por segundo: `12 MB de 28 MB (43 %)`.
+- **No había tope de tiempo total.** Los timeouts se sumaban —10 min por descarga × 2, más 3 de
+  `Add-AppxPackage`— hasta 23 minutos. Ahora el bootstrap entero tiene **6 minutos**: un paquete
+  de ~30 MB que no terminó en seis no va a terminar, y es mejor fallar con un motivo claro
+  (conexión lenta, firewall bloqueando GitHub) que seguir esperando.
+
+### Corregido — 7-Zip ya no depende de que winget exista
+
+Era el efecto dominó: 7-Zip disparaba el bootstrap, el bootstrap se colgaba, y **la tanda entera
+quedaba bloqueada ahí**. Ahora 7-Zip se baja del repositorio oficial de su autor
+(`ip7z/7zip` en GitHub, el de Igor Pavlov), igual que Chrome y RustDesk.
+
+El patrón del instalador (`-x64.msi`) se **verificó contra la API real de GitHub**, no se
+adivinó: el último release publica `7z2606-x64.msi` y es el único asset que matchea. Se instala
+con `msiexec /qn /norestart`, que ya era el camino para MSI.
+
+### Agregado
+
+- `detectDisplayName` en los tres paquetes de descarga directa, con dos tests que lo protegen:
+  uno falla si una descarga directa no sabe detectarse (se reinstalaría siempre, el bug de
+  v0.12.1), y otro si el nombre es demasiado corto para identificar sin matchear otra cosa —
+  ese fallo sería silencioso y en la dirección peligrosa: el cliente se queda sin el programa.
+
+**Probado:** 587 tests (585 + 2 omitidos), build Release 0 warnings. El patrón del asset de 7-Zip
+está verificado contra la API; **que el MSI instale bien sigue sin probarse en Windows**.
+
+---
+
 ## [0.12.1] — 2026-11-19
 
 ### Corregido — Chrome se reinstalaba aunque ya estuviera

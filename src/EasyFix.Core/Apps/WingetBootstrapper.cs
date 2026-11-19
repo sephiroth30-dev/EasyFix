@@ -88,6 +88,17 @@ public sealed class WingetBootstrapper : IWingetBootstrapper
         _logger = logger;
     }
 
+    /// <summary>
+    /// Tope para TODO el bootstrap: resolver el release, dos descargas y la instalación.
+    /// </summary>
+    /// <remarks>
+    /// Sin este tope, los timeouts se sumaban: 10 minutos por descarga del <c>HttpClient</c> × 2,
+    /// más 3 de <c>Add-AppxPackage</c>, daban hasta 23 minutos. Un técnico reportó más de 10
+    /// esperando sin ninguna señal. Un paquete de ~30 MB que no terminó en seis minutos no va a
+    /// terminar: es mejor fallar con un motivo claro que seguir esperando.
+    /// </remarks>
+    private static readonly TimeSpan TotalBudget = TimeSpan.FromMinutes(6);
+
     public async Task<WingetBootstrapResult> EnsureAvailableAsync(
         IProgress<string>? progress, CancellationToken ct)
     {
@@ -95,6 +106,30 @@ public sealed class WingetBootstrapper : IWingetBootstrapper
         {
             return new WingetBootstrapResult(true, "winget ya estaba disponible.");
         }
+
+        // El presupuesto se aplica a toda la operación, no por paso.
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TotalBudget);
+
+        try
+        {
+            return await RunBootstrapAsync(progress, budget.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Se acabó el presupuesto, no lo canceló el técnico.
+            _logger.LogWarning("El bootstrap de winget superó los {Minutes} minutos.", TotalBudget.TotalMinutes);
+
+            return new WingetBootstrapResult(false,
+                $"La instalación de winget pasó de {TotalBudget.TotalMinutes:0} minutos y se cortó. " +
+                "Suele ser una conexión muy lenta o un firewall bloqueando la descarga desde GitHub. " +
+                "Se puede instalar «Instalador de aplicaciones» desde la Microsoft Store y reintentar.");
+        }
+    }
+
+    private async Task<WingetBootstrapResult> RunBootstrapAsync(
+        IProgress<string>? progress, CancellationToken ct)
+    {
 
         _logger.LogInformation("winget no está. Intentando instalarlo automáticamente.");
         progress?.Report("winget no está instalado. Descargándolo desde Microsoft…");

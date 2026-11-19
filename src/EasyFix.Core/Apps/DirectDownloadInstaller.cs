@@ -421,15 +421,44 @@ public sealed class HttpFileDownloader : IFileDownloader, IDisposable
         response.EnsureSuccessStatusCode();
 
         long? total = response.Content.Headers.ContentLength;
-        if (total is long bytes)
-        {
-            progress?.Report($"Descargando {bytes / 1024 / 1024} MB…");
-        }
 
+        // Progreso REAL, por bytes. Antes se reportaba una sola vez el tamaño y después silencio
+        // hasta terminar: en una conexión lenta eso son minutos sin ninguna señal, y el técnico no
+        // puede distinguir «bajando» de «colgado». Es exactamente lo que se reportó con el
+        // bootstrap de winget, que tardó más de 10 minutos sin decir nada.
         await using (Stream source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
         await using (var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
         {
-            await source.CopyToAsync(target, ct).ConfigureAwait(false);
+            var buffer = new byte[81920];
+            long received = 0;
+            DateTimeOffset lastReport = DateTimeOffset.MinValue;
+
+            while (true)
+            {
+                int read = await source.ReadAsync(buffer, ct).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                received += read;
+
+                // Una vez por segundo: más seguido satura el hilo de la interfaz sin aportar nada
+                // que el ojo pueda seguir.
+                DateTimeOffset now = DateTimeOffset.UtcNow;
+                if (now - lastReport < TimeSpan.FromSeconds(1))
+                {
+                    continue;
+                }
+
+                lastReport = now;
+
+                progress?.Report(total is long size && size > 0
+                    ? $"Descargando… {received / 1024 / 1024} MB de {size / 1024 / 1024} MB " +
+                      $"({100.0 * received / size:0} %)"
+                    : $"Descargando… {received / 1024 / 1024} MB");
+            }
         }
 
         _logger.LogInformation("Descargado {Url} en {Path}.", url, destination);
