@@ -45,13 +45,12 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <!-- Fluent Design System para WPF (lepoco/wpfui en GitHub, MIT, ~9800 estrellas). Se usa para
-         tres cosas puntuales, no para reemplazar el tema hecho a mano de Theme.xaml: esquinas
-         redondeadas nativas de Windows 11 (FluentWindow), el gestor de tema/acento
-         (ApplicationThemeManager/ApplicationAccentColorManager) y un puñado de iconos FUNCIONALES
-         en la barra lateral nueva. Los botones, casillas y la barra de progreso siguen siendo los
-         estilos propios: ya estaban probados y documentados, reescribirlos no aportaba nada. -->
-    <PackageReference Include="WPF-UI" Version="4.3.0" />
+
+    <!-- NO agregar una librería de componentes visuales acá. v0.9.5 agregó WPF-UI y v0.10.1 la
+         sacó: en un equipo real la app quedó ILEGIBLE porque ApplicationThemeManager aplicaba el
+         tema claro de la librería sobre el fondo oscuro propio. El problema de fondo es que una
+         dependencia visual no se puede evaluar sin ver el resultado, y desde macOS no se puede
+         ejecutar WPF. Theme.xaml cubre todo lo que la app necesita y está bajo control. -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
     <PackageReference Include="Serilog" Version="4.1.0" />

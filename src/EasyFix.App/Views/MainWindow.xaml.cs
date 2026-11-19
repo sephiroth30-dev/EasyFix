@@ -1,9 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
 using EasyFix.App.ViewModels;
-using Wpf.Ui.Appearance;
-using Wpf.Ui.Controls;
 
 namespace EasyFix.App.Views;
 
@@ -11,14 +8,19 @@ namespace EasyFix.App.Views;
 /// Ventana principal. Solo maneja el chrome propio; toda decisión vive en el ViewModel.
 /// </summary>
 /// <remarks>
-/// <see cref="FluentWindow"/> (WPF-UI, lepoco/wpfui en GitHub) en vez de <see cref="Window"/> — es
-/// lo único que hace falta para las esquinas redondeadas nativas de Windows 11
-/// (<c>WindowCornerPreference</c> en el XAML). No se tocó <c>Mica</c>/<c>Acrylic</c>: eso exige
-/// hacer transparentes partes del fondo que hoy son sólidas a propósito (tema oscuro fijo,
-/// documentado), y no hay manera de verificar el resultado visual desde una Mac. Esquinas
-/// redondeadas es un cambio aislado y seguro; el fondo traslúcido no se intentó a ciegas.
+/// <para><b>Por qué NO se usa una librería de componentes acá.</b> v0.9.5 reemplazó esta clase por
+/// el <c>FluentWindow</c> de WPF-UI para tener esquinas redondeadas, y llamó a
+/// <c>ApplicationThemeManager.Apply</c> para sincronizar el tema. El resultado en un equipo real
+/// fue que <b>no se podía leer nada</b>: sin un tema registrado en <c>App.xaml</c>, esa llamada
+/// aplica el tema CLARO de la librería, que trae estilos implícitos de texto oscuro — encima del
+/// fondo oscuro propio de <c>Theme.xaml</c>.</para>
+///
+/// <para>La lección no es «WPF-UI está mal», es que <b>una dependencia visual no se puede adoptar
+/// sin poder ver el resultado</b>, y desde macOS no se puede. El layout horizontal con barra
+/// lateral y dos columnas —que era lo que de verdad hacía falta— es XAML propio y se mantiene; lo
+/// que se fue es la librería. Las esquinas redondeadas eran cosmética y no valían el riesgo.</para>
 /// </remarks>
-public partial class MainWindow : FluentWindow
+public partial class MainWindow : Window
 {
     public MainWindow(MainViewModel viewModel)
     {
@@ -26,14 +28,6 @@ public partial class MainWindow : FluentWindow
 
         InitializeComponent();
         DataContext = viewModel;
-
-        // Sincroniza el tema interno de WPF-UI con el oscuro fijo de la app, y registra el mismo
-        // acento de Theme.xaml — así los ui:SymbolIcon y cualquier otro control de la librería
-        // leen el color correcto en vez del acento azul por defecto de WPF-UI.
-        ApplicationThemeManager.Apply(this);
-        ApplicationAccentColorManager.Apply(
-            (Color)ColorConverter.ConvertFromString("#4C9AFF"),
-            ApplicationTheme.Dark);
     }
 
     /// <summary>Con <c>WindowStyle="None"</c> el arrastre de la ventana hay que hacerlo a mano.</summary>

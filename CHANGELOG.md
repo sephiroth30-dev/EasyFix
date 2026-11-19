@@ -17,6 +17,53 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.10.1] — 2026-11-19
+
+Tres cosas que salieron de probar v0.10.0 en un equipo real.
+
+### Corregido — la app estaba ilegible
+
+v0.9.5 agregó WPF-UI y llamó a `ApplicationThemeManager.Apply(this)`. Sin un tema registrado en
+`App.xaml`, esa llamada aplica el tema **claro** de la librería: estilos implícitos de texto oscuro
+encima del fondo oscuro propio. Resultado en pantalla: no se leía nada.
+
+**Se quitó WPF-UI por completo.** El layout horizontal con barra lateral y dos columnas —que era lo
+que de verdad hacía falta— es XAML propio y se mantiene intacto; lo que se fue es la librería. Las
+esquinas redondeadas eran cosmética y no valían el riesgo, y los iconos se reemplazaron por barras
+de acento simples.
+
+La lección quedó anotada en el `.csproj` para que no se repita: **una dependencia visual no se
+puede adoptar sin ver el resultado**, y desde macOS no se puede ejecutar WPF. Este fue el costo de
+intentarlo igual.
+
+### Agregado — «Buscar controladores» tiene su propio botón
+
+Los drivers estaban implementados pero enterrados dentro de «Reparar errores», que tarda hasta una
+hora con DISM. Ahora hay una acción propia en la barra lateral que corre **solo** ese fix — por el
+mismo `FixRunner`, con las mismas compuertas de seguridad, sin duplicar nada.
+
+### Agregado — predeterminados automáticos, por la vía oficial
+
+Chrome como navegador y Acrobat Reader para los PDF se configuran **solos** al terminar de
+instalar, sin preguntar, vía `DISM /Online /Import-DefaultAppAssociations` — el mecanismo
+documentado de Microsoft para imágenes corporativas y OEM, que funciona en todas las ediciones
+(incluida Home) sin desactivar nada.
+
+**El alcance real, dicho sin vueltas:** aplica a los perfiles de usuario que se creen **después**.
+Para el perfil que ya está abierto no hay vía automática — el valor va firmado con un hash no
+documentado y el driver `UCPD.sys` bloquea la escritura desde febrero de 2024. Las herramientas que
+lo logran igual desactivan ese driver, que es justo lo que «Tier C» prohíbe. Para ese caso queda el
+botón «Predeterminados», que abre la pantalla exacta de Windows.
+
+Los ProgId (`ChromeHTML`, `AcroExch.Document.DC`) están **SIN VERIFICAR** contra un registro real.
+Si un ProgId no existe en el equipo, Windows ignora esa asociación en silencio — falla hacia «no
+pasó nada», no hacia una asociación rota.
+
+**Probado:** 570 tests (568 + 2 omitidos), build Release 0 warnings. El contraste corregido y el
+botón de drivers **no se vieron renderizados** — misma limitación de siempre.
+
+---
+
 ## [0.10.0] — 2026-11-19
 
 Controladores, cancelar la instalación, y el atajo a los predeterminados de Windows.

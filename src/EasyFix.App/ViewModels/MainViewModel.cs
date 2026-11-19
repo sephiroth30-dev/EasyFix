@@ -46,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly SaturationAdvisor _saturation;
     private readonly SoftwareSelectionAdvisor _softwareSelection;
     private readonly IInstalledProgramsReader _programs;
+    private readonly DefaultAppsConfigurator _defaultApps;
     private readonly StartupEntryReader _startupReader;
     private readonly StartupClassifier _startupClassifier;
     private readonly WingetService _winget;
@@ -73,6 +74,7 @@ public sealed partial class MainViewModel : ObservableObject
         SystemProbe probe,
         HardwareAdvisor advisor,
         IInstalledProgramsReader programs,
+        DefaultAppsConfigurator defaultApps,
         StartupEntryReader startupReader,
         StartupClassifier startupClassifier,
         WingetService winget,
@@ -87,6 +89,7 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(advisor);
         ArgumentNullException.ThrowIfNull(programs);
+        ArgumentNullException.ThrowIfNull(defaultApps);
         ArgumentNullException.ThrowIfNull(startupReader);
         ArgumentNullException.ThrowIfNull(startupClassifier);
         ArgumentNullException.ThrowIfNull(winget);
@@ -103,6 +106,7 @@ public sealed partial class MainViewModel : ObservableObject
         _saturation = new SaturationAdvisor(options.Thresholds);
         _softwareSelection = new SoftwareSelectionAdvisor(options.Thresholds);
         _programs = programs;
+        _defaultApps = defaultApps;
         _startupReader = startupReader;
         _startupClassifier = startupClassifier;
         _winget = winget;
@@ -123,6 +127,10 @@ public sealed partial class MainViewModel : ObservableObject
             () => RunFixesAsync(FixCategory.Performance), () => !IsBusy);
         RepairCommand = new AsyncRelayCommand(
             () => RunFixesAsync(FixCategory.Repair), () => !IsBusy);
+        UpdateDriversCommand = new AsyncRelayCommand(
+            () => RunFixesAsync(FixCategory.Repair, onlyFixId: "drivers.update",
+                label: "Buscando controladores…"),
+            () => !IsBusy);
         RunInstallCommand = new AsyncRelayCommand(InstallSelectedAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
         BackCommand = new RelayCommand(() => CurrentScreen = Screen.Home);
@@ -146,6 +154,7 @@ public sealed partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand AnalyzeCommand { get; }
     public IAsyncRelayCommand ImproveCommand { get; }
     public IAsyncRelayCommand RepairCommand { get; }
+    public IAsyncRelayCommand UpdateDriversCommand { get; }
     public IAsyncRelayCommand RunInstallCommand { get; }
     public IRelayCommand CancelCommand { get; }
     public IRelayCommand BackCommand { get; }
@@ -212,6 +221,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         ImproveCommand.NotifyCanExecuteChanged();
         RepairCommand.NotifyCanExecuteChanged();
+        UpdateDriversCommand.NotifyCanExecuteChanged();
         RunInstallCommand.NotifyCanExecuteChanged();
         DiagnoseWingetCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
@@ -810,7 +820,16 @@ public sealed partial class MainViewModel : ObservableObject
     /// Aplica los fixes de una categoría. «Mejorar rendimiento» y «Reparar errores» usan el mismo
     /// motor y las mismas compuertas de seguridad; solo cambia qué fixes se le pasan.
     /// </summary>
-    private async Task RunFixesAsync(FixCategory category)
+    /// <param name="category">Qué grupo de fixes correr.</param>
+    /// <param name="onlyFixId">
+    /// Cuando no es <c>null</c>, corre SOLO ese fix de la categoría. Existe para «Buscar
+    /// controladores»: los drivers son parte de la reparación, pero esperar los 40 minutos de
+    /// DISM para actualizar un driver de red no tiene sentido — se le da su propia acción sin
+    /// duplicar ninguna compuerta de seguridad, porque sigue pasando por el mismo FixRunner.
+    /// </param>
+    /// <param name="label">Qué mostrar mientras corre.</param>
+    private async Task RunFixesAsync(
+        FixCategory category, string? onlyFixId = null, string? label = null)
     {
         if (_lastProbe is null)
         {
@@ -818,7 +837,10 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        List<IFix> selected = _fixes.Where(f => f.Category == category).ToList();
+        List<IFix> selected = _fixes
+            .Where(f => f.Category == category)
+            .Where(f => onlyFixId is null || f.Id == onlyFixId)
+            .ToList();
 
         if (selected.Count == 0)
         {
@@ -826,9 +848,9 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        RunningCategoryLabel = category == FixCategory.Performance
+        RunningCategoryLabel = label ?? (category == FixCategory.Performance
             ? "Mejorando el rendimiento…"
-            : "Reparando el equipo…";
+            : "Reparando el equipo…");
 
         RepairRows.Clear();
         StatusMessage = null;
@@ -1130,6 +1152,24 @@ public sealed partial class MainViewModel : ObservableObject
             string summary = _winget.LastBootstrapNote is { } note
                 ? $"{note} {WingetResultParser.Summarize(results)}"
                 : WingetResultParser.Summarize(results);
+
+            // Dejar Chrome y Reader como predeterminados, sin preguntar: si el técnico los acaba
+            // de instalar, es lo que quiere. Solo se intenta para los que QUEDARON disponibles —
+            // asociar un programa que no se instaló dejaría una asociación rota.
+            bool chromeReady = results.Any(r =>
+                r.PackageAvailable && r.PackageId.Contains("Chrome", StringComparison.OrdinalIgnoreCase));
+            bool acrobatReady = results.Any(r =>
+                r.PackageAvailable && r.PackageId.Contains("Acrobat", StringComparison.OrdinalIgnoreCase));
+
+            if (chromeReady || acrobatReady)
+            {
+                InstallProgressLabel = "Configurando programas predeterminados…";
+
+                DefaultAppsResult defaults = await _defaultApps
+                    .ApplyAsync(chromeReady, acrobatReady, _cts!.Token);
+
+                summary = $"{summary} {defaults.Detail}";
+            }
 
             SetStatus(summary, warning: results.Any(r => !r.PackageAvailable));
 

@@ -968,10 +968,25 @@ lugar donde cualquier instalador los deja. Un junction hacia `C:\Users\...\Docum
 ---
 
 ## UI minimalista
-**Estado: implementado, SIN VERIFICAR VISUALMENTE** (`App/Views/MainWindow.xaml`). Compila limpio
-en Release con 0 warnings — eso valida XAML y C#, incluidos los nombres de símbolo de WPF-UI (un
-enum: un nombre inválido no compila). **Lo que NO valida es cómo se ve.** No hay forma de renderizar
-WPF desde macOS; la próxima vez que se abra en Windows real es la primera vez que alguien lo ve.
+**Estado: implementado** (`App/Views/MainWindow.xaml`). Compila limpio en Release con 0 warnings —
+eso valida XAML y C#. **Lo que NO valida es cómo se ve.** No hay forma de renderizar WPF desde
+macOS.
+
+### El incidente de WPF-UI (v0.9.5 → v0.10.1) — no repetirlo
+
+v0.9.5 adoptó WPF-UI (`lepoco/wpfui`) para esquinas redondeadas e iconos, y llamó a
+`ApplicationThemeManager.Apply(this)`. En el primer equipo real **la app quedó ilegible**: sin un
+tema registrado en `App.xaml`, esa llamada aplica el tema CLARO de la librería, cuyos estilos
+implícitos ponen texto oscuro sobre el fondo oscuro de `Theme.xaml`. v0.10.1 la quitó entera.
+
+**La regla que queda:** no se adopta una dependencia visual sin poder ver el resultado. Desde esta
+Mac se compila WPF pero no se ejecuta, así que cualquier librería de componentes es una apuesta a
+ciegas sobre la parte más visible del producto. `Theme.xaml` cubre todo lo que la app necesita y
+está bajo control total. Está anotado también en el `.csproj`, que es donde alguien iría a
+agregarla.
+
+Lo que SÍ sobrevivió del rediseño y era lo que importaba: el layout horizontal con barra lateral y
+las dos columnas. Eso es XAML propio, sin dependencias.
 
 ### v0.9.5 — horizontal, con barra lateral, dos columnas
 

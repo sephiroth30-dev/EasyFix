@@ -1,16 +1,14 @@
-<ui:FluentWindow x:Class="EasyFix.App.Views.MainWindow"
+<Window x:Class="EasyFix.App.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:EasyFix.App.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="EasyFix"
         Height="640" Width="1000"
         WindowStyle="None"
-        WindowCornerPreference="Round"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}"
@@ -126,8 +124,6 @@
             <Grid Grid.Row="0" Height="40" Background="Transparent"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <StackPanel Orientation="Horizontal" Margin="20,0,0,0" VerticalAlignment="Center">
-                    <ui:SymbolIcon Symbol="Wrench24" FontSize="15"
-                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0" />
                     <TextBlock Text="{Binding ProductName}" Style="{StaticResource TitleText}" />
                     <TextBlock Text="{Binding Attribution}" Style="{StaticResource MutedText}"
                                FontSize="11" VerticalAlignment="Center" Margin="8,1,0,0"
@@ -174,8 +170,9 @@
                         <StackPanel Grid.Row="1" VerticalAlignment="Top">
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding AnalyzeCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <ui:SymbolIcon Symbol="Search24" FontSize="16"
-                                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0" />
+                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Analizar el equipo" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -184,8 +181,9 @@
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding ImproveCommand}"
                                     IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
                                 <StackPanel Orientation="Horizontal">
-                                    <ui:SymbolIcon Symbol="Flash24" FontSize="16"
-                                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0" />
+                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Mejorar rendimiento" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -194,8 +192,9 @@
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding RepairCommand}"
                                     IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
                                 <StackPanel Orientation="Horizontal">
-                                    <ui:SymbolIcon Symbol="Wrench24" FontSize="16"
-                                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0" />
+                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Reparar errores" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -203,9 +202,26 @@
 
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding InstallAppsCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <ui:SymbolIcon Symbol="ArrowDownload24" FontSize="16"
-                                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0" />
+                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Instalar programas" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Acción propia: los drivers son parte de «Reparar errores», pero
+                                 esperar los 40 min de DISM para actualizar un driver de red no
+                                 tiene sentido. Corre el mismo fix, por el mismo FixRunner, con
+                                 las mismas compuertas de seguridad. -->
+                            <Button Style="{StaticResource SidebarNavButton}" Command="{Binding UpdateDriversCommand}"
+                                    IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}"
+                                    ToolTip="Instala solos los controladores de bajo riesgo (red, video, audio, USB, Bluetooth, impresora). Los de almacenamiento se informan sin tocar; el firmware/BIOS nunca.">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource AccentBrush}" />
+                                    <TextBlock Text="Buscar controladores" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
@@ -218,8 +234,9 @@
                                 Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}"
                                 BorderBrush="{StaticResource WarningBrush}">
                             <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="ArrowUndo24" FontSize="16"
-                                               Foreground="{StaticResource WarningBrush}" Margin="0,0,10,0" />
+                                <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
+                                               VerticalAlignment="Top"
+                                               Background="{StaticResource WarningBrush}" />
                                 <StackPanel>
                                     <TextBlock Text="Deshacer la última reparación" FontSize="12" FontWeight="SemiBold"
                                                Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" />
@@ -245,9 +262,6 @@
                 <!-- Estado vacío: las acciones viven en la barra lateral, no se repiten acá. -->
                 <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center"
                             MaxWidth="360">
-                    <ui:SymbolIcon Symbol="Wrench24" FontSize="40"
-                                   Foreground="{StaticResource BorderBrush}"
-                                   HorizontalAlignment="Center" Margin="0,0,0,16" />
                     <TextBlock Text="Elegí una acción en el panel izquierdo para empezar"
                                Style="{StaticResource TitleText}" FontSize="15"
                                TextWrapping="Wrap" TextAlignment="Center" />
@@ -672,4 +686,4 @@
 
         </Grid>
     </Border>
-</ui:FluentWindow>
+</Window>
