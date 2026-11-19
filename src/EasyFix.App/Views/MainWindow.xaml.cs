@@ -28,6 +28,19 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         DataContext = viewModel;
+
+        // El análisis arranca solo al abrir, como un inventario del equipo. Antes había que
+        // apretar «Analizar» primero, y todo lo demás quedaba bloqueado hasta hacerlo: un técnico
+        // apretaba «Buscar controladores» y la app contestaba «primero hay que analizar el
+        // equipo», que se lee como que el botón no funciona. El análisis es de solo lectura y
+        // tarda segundos, así que no hay motivo para pedirlo a mano.
+        Loaded += async (_, _) =>
+        {
+            if (viewModel.AnalyzeCommand.CanExecute(null))
+            {
+                await viewModel.AnalyzeCommand.ExecuteAsync(null);
+            }
+        };
     }
 
     /// <summary>

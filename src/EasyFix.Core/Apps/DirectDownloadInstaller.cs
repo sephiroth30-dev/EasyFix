@@ -314,11 +314,19 @@ public sealed class DirectDownloadInstaller
 
         var arguments = new List<string> { "/i", installerPath, "/qn", "/norestart" };
 
-        // Los argumentos configurados se agregan después: permiten pasar propiedades del MSI.
-        if (direct.SilentArgs is { Count: > 0 } extra)
-        {
-            arguments.AddRange(extra);
-        }
+        // SilentArgs NO se agregan acá, y eso arregla un fallo real.
+        //
+        // Son los modificadores del instalador .EXE de cada programa (RustDesk usa
+        // «--silent-install»). msiexec no los entiende: con un argumento inválido devuelve 1639
+        // (0x667, ERROR_INVALID_COMMAND_LINE) y, peor, ABRE SU VENTANA DE AYUDA — lo que en un
+        // equipo de cliente aparece como «el instalador abrió una ventana rara y falló».
+        //
+        // RustDesk prefiere el .msi (preferredAssetPattern) pero declara los args del .exe como
+        // respaldo, así que caía justo en este caso. Para un MSI, «/qn /norestart» YA es todo el
+        // modo silencioso que hace falta.
+        //
+        // Si alguna vez hace falta pasarle propiedades a un MSI (del estilo «PROP=valor»), va un
+        // campo nuevo y explícito en la configuración, no este.
 
         return (
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msiexec.exe"),

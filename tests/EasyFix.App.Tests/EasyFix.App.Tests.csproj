@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net8.0-windows, igual que EasyFix.Core: da acceso a las APIs de Windows sin arrastrar
+         WPF. Lo que NO se pone es <UseWPF>, que es lo que exigía el runtime inexistente en macOS. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>EasyFix.App.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    NO se referencia el proyecto EasyFix.App, y eso es deliberado.
+
+    Referenciarlo arrastra el runtime de WPF (Microsoft.WindowsDesktop.App), que NO EXISTE en
+    macOS: las pruebas compilaban pero morían al arrancar con «No frameworks were found». Habrían
+    corrido solo en el CI de Windows — justo lo contrario de lo que hace falta, que es poder
+    verificar ANTES de publicar.
+
+    En cambio se compilan los fuentes del ViewModel directamente. Se puede porque MainViewModel y
+    AppChoice no tocan WPF: cero referencias a System.Windows (verificado, y hay un test que lo
+    mantiene así). Converters.cs sí lo toca, y por eso queda afuera — es la capa de presentación
+    pura, sin lógica que valga la pena probar.
+
+    Si alguna vez MainViewModel necesitara un tipo de WPF, esto deja de compilar: es la señal de
+    que la lógica se está mezclando con la presentación, y hay que sacarla del ViewModel en vez
+    de hacer que esto compile.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\EasyFix.App\ViewModels\MainViewModel.cs" Link="ViewModels\MainViewModel.cs" />
+    <Compile Include="..\..\src\EasyFix.App\ViewModels\AppChoice.cs" Link="ViewModels\AppChoice.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EasyFix.Core\EasyFix.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Las mismas que usa el ViewModel. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>
