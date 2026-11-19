@@ -217,6 +217,21 @@ public sealed record WingetPackage
     public string? Note { get; init; }
 
     /// <summary>
+    /// Qué contarle al cliente mientras este programa se instala.
+    /// </summary>
+    /// <remarks>
+    /// <para>Una instalación de cinco minutos con una barra quieta se siente eterna y deja al
+    /// técnico sin nada que decir. Esto llena ese hueco con algo que además <b>justifica la
+    /// elección</b> frente al cliente: por qué ese programa y no otro.</para>
+    ///
+    /// <para><b>Van hechos verificables, no relleno.</b> La regla del proyecto —no afirmar lo que
+    /// no se comprobó— aplica igual a un texto de pantalla: inventar una anécdota «linda» sobre el
+    /// origen de un programa es exactamente el tipo de cosa que después alguien repite como cierta.
+    /// Si no estás seguro de un dato, no lo pongas.</para>
+    /// </remarks>
+    public string? Story { get; init; }
+
+    /// <summary>
     /// Descarga desde el origen oficial, para lo que no está en winget.
     /// </summary>
     /// <remarks>

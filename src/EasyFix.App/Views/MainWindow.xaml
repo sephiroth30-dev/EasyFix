@@ -8,8 +8,9 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="EasyFix"
         Height="640" Width="1000"
+        MinHeight="560" MinWidth="860"
         WindowStyle="None"
-        ResizeMode="CanMinimize"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}"
         TextOptions.TextFormattingMode="Display">
@@ -137,6 +138,8 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="—" Style="{StaticResource ChromeButton}" Click="Minimize_Click"
                             ToolTip="Minimizar" />
+                    <Button Content="▢" Style="{StaticResource ChromeButton}" Click="Maximize_Click"
+                            ToolTip="Maximizar o restaurar (doble clic en la barra hace lo mismo)" />
                     <Button Content="✕" Style="{StaticResource ChromeButton}" Click="Close_Click"
                             ToolTip="Cerrar" />
                 </StackPanel>
@@ -431,9 +434,11 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MaxWidth="560" />
+                    <ColumnDefinition Width="*" MaxWidth="620" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,4,0,10">
@@ -442,45 +447,58 @@
                                Text="Se descargan del repositorio oficial de Microsoft en el momento, así que siempre entra la última versión. El equipo necesita internet." />
                 </StackPanel>
 
+                <!-- Solo la LISTA scrollea. El progreso vive abajo, fijo: antes estaba acá
+                     adentro y con varios programas marcados había que scrollear para ver la barra
+                     — justo lo que uno mira mientras espera. La lista queda habilitada durante la
+                     instalación: marcar algo lo suma a la tanda en curso. -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                    <StackPanel>
-                        <ItemsControl ItemsSource="{Binding Apps}"
-                                      ItemTemplate="{StaticResource AppRowTemplate}"
-                                      IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
-
-                        <TextBlock Text="{Binding InstallProgressLabel}" Style="{StaticResource MutedText}"
-                                   FontSize="11.5" Margin="0,14,0,0"
-                                   Visibility="{Binding InstallProgressLabel, Converter={StaticResource EmptyVis}}" />
-
-                        <StackPanel Margin="0,8,0,0"
-                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding ProgressStep}"
-                                           Style="{StaticResource MutedText}" FontSize="11"
-                                           VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
-                                           Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
-                                           Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
-                            </Grid>
-                            <ProgressBar Style="{StaticResource ProgressBarStyle}"
-                                         Minimum="0" Maximum="100"
-                                         Value="{Binding ProgressPercent, Mode=OneWay}"
-                                         IsIndeterminate="{Binding ProgressIsIndeterminate}" />
-                        </StackPanel>
-
-                        <Border Style="{StaticResource StatusPanel}"
-                                Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
-                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
-                                       FontSize="11.5" />
-                        </Border>
-                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding Apps}"
+                                  ItemTemplate="{StaticResource AppRowTemplate}" />
                 </ScrollViewer>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,0">
+                <!-- Panel de progreso fijo. Incluye la historia del programa en curso: una
+                     instalación de varios minutos con una barra quieta se siente eterna, y deja
+                     al técnico sin nada que contarle al cliente que está mirando. -->
+                <Border Grid.Row="2" Style="{StaticResource StatusPanel}" Margin="0,12,0,0"
+                        Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding InstallProgressLabel}"
+                                       FontSize="12.5" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                                       Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                                       Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                        </Grid>
+
+                        <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                                     Minimum="0" Maximum="100"
+                                     Value="{Binding ProgressPercent, Mode=OneWay}"
+                                     IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+
+                        <TextBlock Text="{Binding ProgressStep}" Style="{StaticResource MutedText}"
+                                   FontSize="11" Margin="0,8,0,0"
+                                   Visibility="{Binding ProgressStep, Converter={StaticResource EmptyVis}}" />
+
+                        <!-- La historia del programa que se está instalando. -->
+                        <TextBlock Text="{Binding CurrentStory}" Style="{StaticResource MutedText}"
+                                   FontSize="12" Margin="0,10,0,0" LineHeight="18"
+                                   Visibility="{Binding CurrentStory, Converter={StaticResource EmptyVis}}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="3" Style="{StaticResource StatusPanel}"
+                        Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
+                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
+                               FontSize="11.5" TextWrapping="Wrap" />
+                </Border>
+
+                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,14,0,0">
                     <Button Content="Volver" Command="{Binding BackCommand}"
                             Style="{StaticResource GhostButton}" Width="80"
                             IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />

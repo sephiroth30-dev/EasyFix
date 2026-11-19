@@ -528,6 +528,18 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _installProgressLabel;
 
+    /// <summary>
+    /// Historia del programa que se está instalando ahora. <c>null</c> cuando no hay ninguno en
+    /// curso, o cuando ese paquete no tiene historia configurada.
+    /// </summary>
+    /// <remarks>
+    /// Sale de <c>appsettings.json</c> (campo <c>story</c> de cada paquete), así que se edita sin
+    /// recompilar. Llena los minutos de espera con algo que además justifica la elección del
+    /// programa frente al cliente que está mirando la pantalla.
+    /// </remarks>
+    [ObservableProperty]
+    private string? _currentStory;
+
     public int ConfiguredPackageCount => _options.WingetPackages.Count;
 
     // ---- Analizar ---------------------------------------------------------------------------
@@ -1129,7 +1141,15 @@ public sealed partial class MainViewModel : ObservableObject
                 : $"{p.DisplayName}: {DescribeOutcome(p.Finished)}";
 
             InstallProgressLabel = p.Finished is null
-                ? $"Descargando e instalando {p.DisplayName}…"
+                ? $"Instalando {p.DisplayName}…"
+                : $"{p.DisplayName}: {DescribeOutcome(p.Finished)}";
+
+            // La historia cambia con el paquete en curso y se limpia al terminarlo: dejarla
+            // puesta mientras ya se instala otro sería contar la historia equivocada.
+            CurrentStory = p.Finished is null
+                ? _options.WingetPackages
+                    .FirstOrDefault(pkg => string.Equals(pkg.Id, p.PackageId, StringComparison.OrdinalIgnoreCase))
+                    ?.Story
                 : null;
 
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
@@ -1140,8 +1160,14 @@ public sealed partial class MainViewModel : ObservableObject
 
         try
         {
+            // La cola se vuelve a leer antes de cada paquete: la lista queda habilitada durante
+            // la instalación, así que marcar algo lo suma a ESTA tanda y desmarcarlo lo saca si
+            // todavía no arrancó. Sin esto, la casilla habilitada sería una mentira visual.
             IReadOnlyList<WingetResult> results = await _winget.InstallAsync(
-                selected.Select(a => a.Package).ToList(), progress, _cts!.Token);
+                selected.Select(a => a.Package).ToList(),
+                progress,
+                _cts!.Token,
+                pendingSelection: () => Apps.Where(a => a.IsSelected).Select(a => a.Package).ToList());
 
             InstallProgressLabel = null;
 

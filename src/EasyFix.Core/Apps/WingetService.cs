@@ -123,10 +123,17 @@ public sealed class WingetService
     /// Instala los paquetes indicados, uno después del otro. No tira excepción por un paquete que
     /// falla: devuelve un resultado por cada uno.
     /// </summary>
+    /// <param name="pendingSelection">
+    /// Cola viva, opcional. Si se pasa, se consulta <b>antes de cada paquete</b> para saber qué
+    /// sigue marcado: así el técnico puede marcar y desmarcar mientras la tanda corre, en vez de
+    /// quedar bloqueado hasta que termine. Lo que ya se instaló no se repite, y el paquete en
+    /// curso no se puede sacar — ya está corriendo. <c>null</c> = la lista inicial es fija.
+    /// </param>
     public async Task<IReadOnlyList<WingetResult>> InstallAsync(
         IReadOnlyList<WingetPackage> packages,
         IProgress<InstallProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<IReadOnlyList<WingetPackage>>? pendingSelection = null)
     {
         ArgumentNullException.ThrowIfNull(packages);
 
@@ -174,12 +181,37 @@ public sealed class WingetService
             }
         }
 
-        for (int i = 0; i < packages.Count; i++)
+        // La cola es mutable: con pendingSelection, antes de cada paquete se vuelve a preguntar
+        // qué sigue marcado. Sin eso, marcar algo durante la instalación no haría nada hasta la
+        // tanda siguiente — que es justo lo que el técnico no espera al ver la casilla habilitada.
+        var queue = packages.ToList();
+        var processed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < queue.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
 
-            WingetPackage package = packages[i];
-            progress?.Report(new InstallProgress(package.Id, package.Name, i + 1, packages.Count));
+            if (pendingSelection is not null)
+            {
+                // Lo ya procesado nunca vuelve a la cola; lo que el técnico desmarcó y todavía no
+                // arrancó, se cae. El paquete en curso no entra en este cálculo: ya está corriendo.
+                IReadOnlyList<WingetPackage> current = pendingSelection();
+
+                var refreshed = queue.Take(i).ToList();
+                refreshed.AddRange(current.Where(p => !processed.Contains(p.Id)));
+
+                queue = refreshed;
+
+                if (i >= queue.Count)
+                {
+                    break; // se desmarcó todo lo que faltaba
+                }
+            }
+
+            WingetPackage package = queue[i];
+            processed.Add(package.Id);
+
+            progress?.Report(new InstallProgress(package.Id, package.Name, i + 1, queue.Count));
 
             WingetResult result;
 
@@ -215,7 +247,7 @@ public sealed class WingetService
                     // Windows en vez del programa que había marcado.
                     const string BootstrapDisplayName = "winget (no estaba instalado en este equipo)";
                     progress?.Report(new InstallProgress(
-                        "winget", BootstrapDisplayName, i + 1, packages.Count, Finished: null));
+                        "winget", BootstrapDisplayName, i + 1, queue.Count, Finished: null));
 
                     WingetBootstrapResult bootstrap;
                     try
@@ -262,7 +294,7 @@ public sealed class WingetService
                         };
 
                         progress?.Report(new InstallProgress(
-                            package.Id, package.Name, i + 1, packages.Count, result));
+                            package.Id, package.Name, i + 1, queue.Count, result));
                         results.Add(result);
                         continue;
                     }
@@ -289,7 +321,7 @@ public sealed class WingetService
                     // Esperar a que Windows Installer esté libre. "En serie" no alcanza: el
                     // instalador anterior puede seguir finalizando. Es la explicación más probable
                     // del código 1 de VLC, que arrancó en el mismo segundo en que terminó VCRedist.
-                    await WaitForInstallerAsync(progress, package, i, packages.Count, ct)
+                    await WaitForInstallerAsync(progress, package, i, queue.Count, ct)
                         .ConfigureAwait(false);
 
                     result = await InstallOneAsync(winget, package, ct).ConfigureAwait(false);
@@ -345,7 +377,7 @@ public sealed class WingetService
             results.Add(result);
 
             progress?.Report(new InstallProgress(
-                package.Id, package.Name, i + 1, packages.Count, result));
+                package.Id, package.Name, i + 1, queue.Count, result));
         }
 
         return results;

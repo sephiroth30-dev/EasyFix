@@ -30,13 +30,57 @@ public partial class MainWindow : Window
         DataContext = viewModel;
     }
 
-    /// <summary>Con <c>WindowStyle="None"</c> el arrastre de la ventana hay que hacerlo a mano.</summary>
+    /// <summary>
+    /// Con <c>WindowStyle="None"</c> el arrastre y el doble clic para maximizar hay que hacerlos
+    /// a mano.
+    /// </summary>
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            return;
+        }
+
         if (e.ClickCount == 1)
         {
+            // Arrastrar una ventana maximizada la restaura y la engancha al cursor, igual que
+            // hace Windows con cualquier ventana normal.
+            if (WindowState == WindowState.Maximized)
+            {
+                WindowState = WindowState.Normal;
+            }
+
             DragMove();
         }
+    }
+
+    private void Maximize_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
+
+    /// <summary>
+    /// Alterna maximizado, respetando el área de trabajo.
+    /// </summary>
+    /// <remarks>
+    /// Con <c>WindowStyle="None"</c>, maximizar cubre la barra de tareas: Windows no aplica el
+    /// ajuste que haría con una ventana de chrome normal. Acotar <c>MaxHeight</c>/<c>MaxWidth</c>
+    /// al <c>WorkArea</c> antes de maximizar lo evita. Se lee en cada maximización y no una sola
+    /// vez al abrir: el técnico puede mover la ventana a otro monitor, o cambiar la resolución
+    /// del equipo que está reparando.
+    /// </remarks>
+    private void ToggleMaximize()
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            WindowState = WindowState.Normal;
+            MaxHeight = double.PositiveInfinity;
+            MaxWidth = double.PositiveInfinity;
+            return;
+        }
+
+        System.Windows.Rect workArea = SystemParameters.WorkArea;
+        MaxHeight = workArea.Height;
+        MaxWidth = workArea.Width;
+        WindowState = WindowState.Maximized;
     }
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;

@@ -17,6 +17,50 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.11.0] — 2026-11-19
+
+Cinco mejoras de interfaz que salieron de usar la app de verdad.
+
+### Corregido — había que scrollear para ver el progreso
+
+La barra de progreso estaba **dentro** del mismo scroll que la lista de programas: con varios
+marcados, había que bajar para ver justo lo que uno mira mientras espera. Ahora la lista es lo
+único que scrollea y el progreso vive fijo abajo.
+
+### Agregado
+
+- **Pantalla completa.** La ventana es redimensionable (mínimo 860×560), con botón de maximizar y
+  doble clic en la barra de título. Maximizar respeta el área de trabajo: con `WindowStyle="None"`
+  Windows no lo hace solo y la ventana taparía la barra de tareas.
+- **Tema claro y oscuro automático**, según el «Modo de aplicación» de Windows
+  (`AppsUseLightTheme`). Los colores se mudaron de `Theme.xaml` a `Palette.Dark.xaml` /
+  `Palette.Light.xaml`, que definen las mismas claves; los estilos las consumen por nombre y no
+  saben cuál está cargada. La paleta clara no es la oscura invertida: el texto y el acento se
+  eligieron con contraste suficiente sobre fondo claro (AA de WCAG para texto normal). **Si la
+  lectura del registro falla, queda el tema oscuro** — el conocido, el que se vio funcionando.
+- **Historia de cada programa mientras se instala.** Una instalación de varios minutos con una
+  barra quieta se siente eterna y deja al técnico sin nada que decirle al cliente que mira la
+  pantalla. Cada paquete tiene un texto en `appsettings.json` (campo `story`, editable sin
+  recompilar) que cuenta algo real del programa **y por qué se eligió ese y no otro** — eso
+  último es lo que justifica el trabajo frente al cliente. Son hechos verificables: inventar
+  anécdotas sería el mismo pecado que el proyecto persigue en los diagnósticos.
+- **Marcar y desmarcar programas mientras la tanda corre.** La lista ya no se bloquea al instalar:
+  lo que marques se suma a la cola en curso, y lo que desmarques se cae si todavía no arrancó. El
+  paquete en curso no se puede sacar — ya está corriendo.
+
+### Agregado — una verificación que sí se puede hacer sin ver la pantalla
+
+`PaletteParityTests` comprueba que las dos paletas declaren exactamente las mismas claves, y que
+`Theme.xaml` no tenga ningún color literal. Una clave faltante en una sola paleta dejaría algo
+ilegible **solo** en ese tema, en el equipo del cliente, y nada más lo detectaría: compila igual y
+desde macOS no se puede ver renderizado. Es la lección de v0.9.5 convertida en test.
+
+**Probado:** 573 tests (571 + 2 omitidos), build Release 0 warnings, JSON válido. **Nada de esto se
+vio renderizado** — misma limitación de siempre. El tema claro es lo más expuesto: es una paleta
+nueva que nadie miró todavía.
+
+---
+
 ## [0.10.1] — 2026-11-19
 
 Tres cosas que salieron de probar v0.10.0 en un equipo real.

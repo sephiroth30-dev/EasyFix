@@ -38,6 +38,8 @@ public partial class App : Application
         // en silencio. En el equipo de un cliente, una app que desaparece sin decir nada es lo peor.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
+        ApplySystemTheme();
+
         _serilog = BuildLogger();
         _services = BuildServices(_serilog);
 
@@ -45,6 +47,53 @@ public partial class App : Application
             .LogInformation("EasyFix iniciado. Journals en {Dir}.", FileJournalSink.DefaultDirectory);
 
         _services.GetRequiredService<MainWindow>().Show();
+    }
+
+    /// <summary>
+    /// Carga la paleta clara u oscura según lo que tenga configurado Windows.
+    /// </summary>
+    /// <remarks>
+    /// <para>Se hace ANTES de construir la ventana: cambiar la paleta con la UI ya creada obliga a
+    /// refrescar bindings y es una fuente de parpadeos. El técnico abre la app en el equipo del
+    /// cliente, se adapta una vez y listo.</para>
+    ///
+    /// <para><b>El default es oscuro y eso es a propósito.</b> La paleta oscura es la que se vio
+    /// funcionando en equipos reales; la clara es nueva y no se pudo ver renderizada. Si la lectura
+    /// del registro falla por cualquier motivo, se queda la que ya está cargada desde
+    /// <c>App.xaml</c> — la conocida.</para>
+    ///
+    /// <para><c>AppsUseLightTheme</c>: 0 = oscuro, 1 = claro. Es el valor que cambia el selector de
+    /// «Modo de aplicación» de Windows, y existe desde Windows 10 1607. Si no está (Windows más
+    /// viejo, o perfil nuevo que nunca lo tocó), no hay nada que decidir: oscuro.</para>
+    /// </remarks>
+    private void ApplySystemTheme()
+    {
+        try
+        {
+            object? value = Microsoft.Win32.Registry.GetValue(
+                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                "AppsUseLightTheme",
+                null);
+
+            if (value is not int useLight || useLight != 1)
+            {
+                return; // oscuro, o no se pudo saber: queda la paleta por defecto de App.xaml
+            }
+
+            var light = new ResourceDictionary
+            {
+                Source = new Uri("Styles/Palette.Light.xaml", UriKind.Relative),
+            };
+
+            // Reemplaza la paleta oscura en su posición (0), para que los estilos de Theme.xaml
+            // sigan resolviéndose después de ella.
+            Resources.MergedDictionaries[0] = light;
+        }
+        catch (Exception ex)
+        {
+            // Sin tema claro se ve igual que siempre; romper el arranque por esto sería absurdo.
+            System.Diagnostics.Debug.WriteLine($"No se pudo aplicar el tema del sistema: {ex}");
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

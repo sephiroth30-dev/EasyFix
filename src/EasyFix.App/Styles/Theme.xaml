@@ -4,29 +4,12 @@
     <!--
         Minimalista: un solo color de acento, cero gradientes, cero iconos decorativos,
         tipografía grande y mucho espacio en blanco.
+
+        LOS COLORES NO ESTÁN ACÁ. Viven en Palette.Dark.xaml y Palette.Light.xaml, que definen las
+        mismas claves; App.xaml.cs carga una u otra según el tema de Windows. Este archivo solo
+        tiene estilos y los consume por nombre, así que no sabe —ni necesita saber— cuál está
+        cargada. Agregar un color literal acá rompería el tema claro en silencio.
     -->
-
-    <Color x:Key="BackgroundColor">#FF16181D</Color>
-    <Color x:Key="SurfaceColor">#FF1E2127</Color>
-    <Color x:Key="SurfaceHoverColor">#FF272B33</Color>
-    <Color x:Key="BorderColor">#FF32363F</Color>
-    <Color x:Key="TextColor">#FFF2F4F8</Color>
-    <Color x:Key="TextMutedColor">#FF9AA3B2</Color>
-    <Color x:Key="AccentColor">#FF4C9AFF</Color>
-    <Color x:Key="DangerColor">#FFFF6B6B</Color>
-    <Color x:Key="WarningColor">#FFE8B657</Color>
-    <Color x:Key="OkColor">#FF5EC98A</Color>
-
-    <SolidColorBrush x:Key="BackgroundBrush"   Color="{StaticResource BackgroundColor}" />
-    <SolidColorBrush x:Key="SurfaceBrush"      Color="{StaticResource SurfaceColor}" />
-    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{StaticResource SurfaceHoverColor}" />
-    <SolidColorBrush x:Key="BorderBrush"       Color="{StaticResource BorderColor}" />
-    <SolidColorBrush x:Key="TextBrush"         Color="{StaticResource TextColor}" />
-    <SolidColorBrush x:Key="TextMutedBrush"    Color="{StaticResource TextMutedColor}" />
-    <SolidColorBrush x:Key="AccentBrush"       Color="{StaticResource AccentColor}" />
-    <SolidColorBrush x:Key="DangerBrush"       Color="{StaticResource DangerColor}" />
-    <SolidColorBrush x:Key="WarningBrush"      Color="{StaticResource WarningColor}" />
-    <SolidColorBrush x:Key="OkBrush"           Color="{StaticResource OkColor}" />
 
     <!-- Segoe UI Variable existe en Win11; Segoe UI es el fallback en Win10. -->
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -158,7 +141,9 @@
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="#FF0B1522" />
+        <!-- Encima del acento: lo decide la paleta, porque el acento es claro en el tema oscuro
+             y oscuro en el claro. Un literal acá dejaría el botón ilegible en uno de los dos. -->
+        <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
         <Setter Property="Background" Value="{StaticResource AccentBrush}" />
         <Setter Property="Padding" Value="18,11" />
         <Setter Property="Cursor" Value="Hand" />
@@ -225,7 +210,7 @@
                             Background="Transparent" SnapsToDevicePixels="True">
                         <Path x:Name="Tick" Visibility="Collapsed"
                               Data="M 2,6 L 5.5,9.5 L 11,3"
-                              Stroke="{StaticResource BackgroundBrush}" StrokeThickness="1.8"
+                              Stroke="{StaticResource OnAccentBrush}" StrokeThickness="1.8"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -273,7 +258,7 @@
                                 Background="Transparent" SnapsToDevicePixels="True">
                             <Path x:Name="Tick" Visibility="Collapsed"
                                   Data="M 2,6 L 5.5,9.5 L 11,3"
-                                  Stroke="{StaticResource BackgroundBrush}" StrokeThickness="1.8"
+                                  Stroke="{StaticResource OnAccentBrush}" StrokeThickness="1.8"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                         </Border>
 

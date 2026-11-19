@@ -5,9 +5,16 @@
         Sin StartupUri: la ventana se crea desde el contenedor de DI en OnStartup, para que el
         ViewModel reciba sus dependencias.
     -->
+    <!--
+        La PALETA se inserta en tiempo de ejecución, antes de que exista la ventana: App.xaml.cs
+        lee el tema de Windows y mete Palette.Dark.xaml o Palette.Light.xaml en la posición 0 de
+        este diccionario. Theme.xaml consume las claves por nombre y funciona con cualquiera de
+        las dos. El orden importa: la paleta tiene que resolverse ANTES que los estilos.
+    -->
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Styles/Palette.Dark.xaml" />
                 <ResourceDictionary Source="Styles/Theme.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

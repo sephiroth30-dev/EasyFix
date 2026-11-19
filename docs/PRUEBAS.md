@@ -55,9 +55,26 @@ a todas las pantallas siguientes.
 - [ ] Los botones (Analizar, Mejorar, etc.) siguen funcionando igual que antes — el rediseño no
       debería haber cambiado ningún comando, solo dónde vive cada cosa en pantalla.
 
+### v0.11.0 — lo nuevo a mirar
+
+- [ ] **Tema claro**: poner Windows en «Modo de aplicación: Claro» y abrir EasyFix. Tiene que
+      verse claro y **legible**. Es una paleta nueva que nadie vio renderizada: si algo no se
+      lee, capturar esa pantalla. Volver a «Oscuro» y confirmar que vuelve al tema de siempre.
+- [ ] **Maximizar**: botón ▢ y doble clic en la barra de título. La ventana **no** debe tapar la
+      barra de tareas. Restaurar y confirmar que vuelve al tamaño anterior.
+- [ ] **Redimensionar** arrastrando los bordes; no debería poder achicarse más allá de 860×560.
+- [ ] **Progreso sin scroll**: marcar varios programas, instalar, y confirmar que la barra de
+      progreso se ve **sin tener que bajar** — es el bug que motivó el cambio.
+- [ ] **Historias**: mientras instala cada programa, debajo de la barra tiene que aparecer el
+      texto de ese programa, y cambiar al pasar al siguiente.
+- [ ] **Marcar durante la instalación**: con la tanda corriendo, marcar un programa que estaba
+      desmarcado. Tiene que instalarse en la misma corrida, sin apretar «Instalar» de nuevo.
+      Desmarcar uno que todavía no arrancó: no debería instalarse.
+
 ### Qué capturar
 Captura de pantalla de cada una de las 7 pantallas (Inicio, Analizando, Reporte, Instalar,
-Reparando, Resultado, Deshacer). Es lo único que permite ajustar anchos/márgenes sin adivinar.
+Reparando, Resultado, Deshacer), **en los dos temas**. Es lo único que permite ajustar
+anchos/márgenes y contraste sin adivinar.
 
 ---
 
