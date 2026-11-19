@@ -116,7 +116,7 @@ public sealed class DriverUpdateFix : IFix
 
         if (safe.Count == 0)
         {
-            summary.Append("No hay actualizaciones de driver de bajo riesgo para instalar.");
+            summary.Append("No hace falta actualizar ningún controlador.");
         }
         else
         {
@@ -144,18 +144,18 @@ public sealed class DriverUpdateFix : IFix
 
         if (needsConfirmation.Count > 0)
         {
+            // Corto: cuáles son y que no se tocaron. El porqué está documentado en el código,
+            // no tiene que ocupar la pantalla del técnico.
             summary.Append(
-                $" {needsConfirmation.Count} controlador(es) (almacenamiento u otra clase sin " +
-                $"identificar con certeza) necesitan tu confirmación manual — no se tocaron: " +
+                $" {needsConfirmation.Count} de almacenamiento quedaron sin tocar: " +
                 $"{string.Join(", ", needsConfirmation.Select(u => u.Title))}.");
         }
 
         if (firmware.Count > 0)
         {
             summary.Append(
-                $" {firmware.Count} actualización(es) de firmware o BIOS detectadas. Esto nunca " +
-                $"se instala desde EasyFix: bajalas de la página oficial del fabricante del " +
-                $"equipo. {string.Join(", ", firmware.Select(u => u.Title))}.");
+                $" Hay {firmware.Count} de firmware o BIOS: esas se bajan del fabricante. " +
+                $"{string.Join(", ", firmware.Select(u => u.Title))}.");
         }
 
         if (safe.Count == 0 && needsConfirmation.Count == 0 && firmware.Count == 0)

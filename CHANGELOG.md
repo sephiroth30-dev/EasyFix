@@ -17,6 +17,64 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.15.0] — 2026-11-19
+
+Toda la tanda salió de usar la app en un equipo real. El pedido de fondo: **menos texto, más
+intuitivo, que se vea vivo.**
+
+### Quitado — las explicaciones
+
+Al analizar ya no dice «si alguna comprobación tarda demasiado se salta»; al mejorar ya no dice
+«podés cerrar esta ventana sin miedo»; «Instalar programas» perdió el título y las dos líneas
+sobre de dónde se descarga. Los predeterminados ya no explican el bloqueo de Windows ni el driver
+`UCPD.sys` — eso es un problema de implementación, no del técnico que está trabajando.
+
+El resultado de controladores pasó de un párrafo a una línea: *«No hace falta actualizar ningún
+controlador.»*
+
+### Cambiado — lo visual
+
+- **Fuera la franja de color vertical** de cada fila. Leída de lejos parecía un adorno de la
+  herramienta, no información. La gravedad ahora la lleva un punto de color junto al título,
+  donde el ojo ya está mirando. Sin líneas divisorias tampoco: el espacio separa igual.
+- **Barra de desplazamiento moderna**: una barrita fina, sin los botones de flecha ni el canal
+  hundido. La de Windows por defecto es un control de los 90 y en una app plana canta como un
+  parche.
+- **La pantalla de resultado es UNA columna.** Antes se dividía en «antes y después» + «lo que se
+  hizo», y lo segundo repetía con otras palabras lo que ya decía lo primero.
+- **El título del resultado cambia según lo que se corrió.** «Resultado de la reparación» no tiene
+  sentido cuando el técnico solo pidió actualizar controladores: ahora dice «Controladores».
+
+### Corregido
+
+- **Cancelar no detenía la operación anterior.** `ResetCancellation` desechaba el token sin
+  cancelarlo, y desechar un `CancellationTokenSource` no cancela nada: la descarga previa seguía
+  viva. Es el fallo reportado — pidió instalar Notepad++ y volvió a aparecer la descarga de VLC
+  con sus 207 MB.
+- **Los programas ya instalados ahora se detectan en el análisis**: quedan desmarcados y
+  atenuados, con «Ya instalado». Antes el técnico marcaba Chrome sin saber que ya lo tenía y
+  recién al final la app le decía «ya estaba».
+- **La historia dura lo suficiente para leerse.** 7-Zip instala en segundos y su historia
+  desaparecía antes de la primera línea. Ahora cada una tiene un piso de 9 segundos en pantalla;
+  si el programa termina antes, la siguiente espera su turno. La instalación no se frena por
+  esto: lo único que se posterga es el cambio de texto.
+
+### Sobre una prueba que falló al acortar los textos
+
+`SoloNeedsConfirmation_NothingToDo_PeroElResumenLosNombra` exigía la palabra «confirmación» en el
+resumen. Al acortar la redacción falló, aunque el comportamiento seguía intacto: el resumen sigue
+diciendo que esos controladores no se tocaron y cuáles son.
+
+Se corrigió **la aserción, no el texto del producto**: una prueba que fija la redacción exacta en
+vez de la conducta se rompe con cada ajuste de copy y no detecta ningún defecto real. Queda
+anotado en el propio test.
+
+**Probado:** 612 pruebas (592 Core + 20 App), build Release 0 warnings, `.exe` generado.
+**SIN VERIFICAR en Windows:** todo lo visual, como siempre. Lo más expuesto: la barra de
+desplazamiento nueva (es una plantilla completa reescrita a mano) y el punto de color de cada fila.
+
+---
+
 ## [0.14.0] — 2026-11-19
 
 Rediseño de la interfaz, con un plan previo en vez de a ojo. Más seis correcciones reportadas

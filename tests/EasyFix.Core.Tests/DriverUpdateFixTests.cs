@@ -115,7 +115,16 @@ public sealed class DriverUpdateFixTests
         Assert.Equal(FixStatus.NothingToDo, outcome.Status);
         Assert.Empty(catalog.InstalledUpdateIds); // nunca se instaló
         Assert.Contains("LSI - SCSIAdapter - 9.9", outcome.Summary, StringComparison.Ordinal);
-        Assert.Contains("confirmación", outcome.Summary, StringComparison.OrdinalIgnoreCase);
+
+        // El contrato es que el resumen diga que NO se tocaron. Antes esto exigía la palabra
+        // «confirmación», que era la redacción de entonces: al acortar los textos por pedido del
+        // técnico («no quiero ese tipo de explicaciones»), la prueba falló aunque el
+        // comportamiento seguía intacto.
+        //
+        // Una prueba que fija la redacción exacta en vez de la conducta se rompe con cada ajuste
+        // de copy y no detecta ningún defecto real — así que se corrigió la ASERCIÓN, no el texto
+        // del producto.
+        Assert.Contains("sin tocar", outcome.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

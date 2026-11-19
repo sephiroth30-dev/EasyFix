@@ -23,50 +23,66 @@
         <BooleanToVisibilityConverter x:Key="BoolVis" />
         <vm:HexToBrushConverter x:Key="HexBrush" />
 
-        <!-- Una fila del reporte: franja de color + título + detalle + números medidos. -->
+        <!-- Una fila del reporte.
+             Sin la franja de color vertical que había antes a la izquierda: leída de lejos
+             parecía un adorno de la herramienta, no información. La gravedad ahora la lleva el
+             punto de color junto al título, que está donde el ojo ya está mirando.
+             Sin línea divisoria tampoco: el espacio separa igual y suma menos ruido. -->
         <DataTemplate x:Key="ReportRowTemplate" DataType="{x:Type vm:ReportRow}">
-            <Grid Margin="0,0,0,1">
+            <Grid Margin="0,0,0,2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3" />
-                    <ColumnDefinition Width="11" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" CornerRadius="2" Margin="0,11,0,11">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                <Ellipse Grid.Column="0" Width="7" Height="7" Margin="0,16,11,0"
+                         VerticalAlignment="Top">
+                    <Ellipse.Style>
+                        <Style TargetType="Ellipse">
+                            <Setter Property="Fill" Value="{StaticResource TextMutedBrush}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding Kind}" Value="crit">
-                                    <Setter Property="Background" Value="{StaticResource DangerBrush}" />
+                                    <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Kind}" Value="warn">
-                                    <Setter Property="Background" Value="{StaticResource WarningBrush}" />
+                                    <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="ok">
+                                    <Setter Property="Fill" Value="{StaticResource OkBrush}" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
-                    </Border.Style>
-                </Border>
+                    </Ellipse.Style>
+                </Ellipse>
 
-                <StackPanel Grid.Column="2" Margin="0,10,0,11">
+                <StackPanel Grid.Column="1" Margin="0,10,0,12">
                     <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
-                               FontSize="11.5" Margin="0,3,0,0" />
+                               FontSize="11.5" Margin="0,4,0,0" />
                     <TextBlock Text="{Binding Metrics}" FontFamily="Consolas" FontSize="11"
-                               Foreground="{StaticResource AccentBrush}" Margin="0,5,0,0"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,6,0,0"
                                TextWrapping="Wrap"
                                Visibility="{Binding Metrics, Converter={StaticResource EmptyVis}}" />
                 </StackPanel>
-
-                <Border Grid.ColumnSpan="3" BorderBrush="{StaticResource BorderBrush}"
-                        BorderThickness="0,0,0,1" VerticalAlignment="Bottom" />
             </Grid>
         </DataTemplate>
 
         <!-- Un programa de la lista: casilla, nombre, nota y estado. -->
         <DataTemplate x:Key="AppRowTemplate" DataType="{x:Type vm:AppChoice}">
             <Grid Margin="0,0,0,1">
+                <!-- Lo que el análisis encontró ya instalado se ve atenuado: se distingue de un
+                     vistazo sin tener que leer el estado de cada fila. -->
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsAlreadyPresent}" Value="True">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="11" />
@@ -291,11 +307,6 @@
                            FontSize="11.5" Margin="0,8,0,0"
                            Visibility="{Binding ProgressDetail, Converter={StaticResource EmptyVis}}" />
 
-                <Border Style="{StaticResource StatusPanel}" Margin="0,20,0,0">
-                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
-                               Text="Nada de esto modifica el equipo. Si alguna comprobación tarda demasiado, se salta y el informe sale igual." />
-                </Border>
-
                 <Button Content="Cancelar" Command="{Binding CancelCommand}"
                         Style="{StaticResource GhostButton}" Margin="0,16,0,0"
                         HorizontalAlignment="Center" />
@@ -428,20 +439,6 @@
                 <!-- ===== Columna izquierda: el protagonista ===== -->
                 <Grid Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">
 
-                    <!-- Antes de instalar: qué hace esta pantalla. -->
-                    <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}">
-                        <TextBlock Text="Instalar programas"
-                                   FontFamily="{StaticResource UiFont}" FontSize="30"
-                                   FontWeight="Light" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextBrush}" />
-                        <TextBlock Style="{StaticResource MutedText}" FontSize="13.5"
-                                   Margin="0,14,0,0" MaxWidth="440" LineHeight="21"
-                                   HorizontalAlignment="Left"
-                                   Text="Se descargan del sitio oficial en el momento, así que siempre entra la última versión. Lo que ya esté instalado se saltea solo." />
-                        <TextBlock Style="{StaticResource MutedText}" FontSize="12"
-                                   Margin="0,16,0,0" Opacity="0.75"
-                                   Text="Mientras instala vas a ver de qué se trata cada programa." />
-                    </StackPanel>
 
                     <!-- Durante la instalación: la historia manda. -->
                     <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
@@ -643,11 +640,6 @@
                                Visibility="{Binding ProgressDetail, Converter={StaticResource EmptyVis}}" />
                 </StackPanel>
 
-                <Border Style="{StaticResource StatusPanel}">
-                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
-                               Text="Podés cerrar esta ventana sin miedo: cada cambio queda registrado antes de aplicarse y se puede deshacer después. Reparar los archivos del sistema puede tardar hasta 40 minutos." />
-                </Border>
-
                 <Button Content="Cancelar" Command="{Binding CancelCommand}"
                         Style="{StaticResource GhostButton}" Margin="0,16,0,0"
                         HorizontalAlignment="Center" />
@@ -662,51 +654,36 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Resultado de la reparación"
-                           Style="{StaticResource TitleText}" FontSize="15" Margin="0,4,0,10" />
+                <TextBlock Grid.Row="0" Text="{Binding ResultTitle}"
+                           FontFamily="{StaticResource UiFont}" FontSize="26" FontWeight="Light"
+                           Foreground="{StaticResource TextBrush}" Margin="0,4,0,16" />
 
-                <Grid Grid.Row="1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="20" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+                <!-- UNA columna. Antes se dividía en «antes y después» + «lo que se hizo»: lo
+                     segundo repetía con otras palabras lo que ya decía lo primero. Queda la
+                     evidencia —cada condición antes y después— cuando la corrida fue completa, y
+                     el resultado del fix cuando fue uno solo. -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                    <StackPanel MaxWidth="620" HorizontalAlignment="Left">
+                        <ItemsControl ItemsSource="{Binding ChecklistCompareRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}"
+                                      Visibility="{Binding HasChecklistCompareRows, Converter={StaticResource BoolVis}}" />
 
-                    <!-- Columna izquierda: la prueba de que funcionó — cada condición, antes y después. -->
-                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                        <StackPanel>
-                            <TextBlock Text="ESTADO DEL EQUIPO — ANTES Y DESPUÉS"
-                                       Style="{StaticResource SectionHeader}" Margin="0,0,0,4"
-                                       Visibility="{Binding HasChecklistCompareRows, Converter={StaticResource BoolVis}}" />
-                            <ItemsControl ItemsSource="{Binding ChecklistCompareRows}"
-                                          ItemTemplate="{StaticResource ReportRowTemplate}" />
-                        </StackPanel>
-                    </ScrollViewer>
+                        <!-- Para una corrida de un solo fix no hay antes/después que mostrar:
+                             el resultado del fix ES el resultado de la pantalla. -->
+                        <ItemsControl ItemsSource="{Binding RepairRows}"
+                                      ItemTemplate="{StaticResource ReportRowTemplate}"
+                                      Visibility="{Binding HasChecklistCompareRows, Converter={StaticResource InvertVis}}" />
 
-                    <!-- Columna derecha: lo que se hizo, paso por paso, y los avisos. -->
-                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                        <StackPanel>
-                            <TextBlock Text="LO QUE SE HIZO" Style="{StaticResource SectionHeader}"
-                                       Margin="0,0,0,4"
-                                       Visibility="{Binding HasRepairRows, Converter={StaticResource BoolVis}}" />
-                            <ItemsControl ItemsSource="{Binding RepairRows}"
-                                          ItemTemplate="{StaticResource ReportRowTemplate}" />
+                        <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
+                                   FontSize="12" Margin="0,16,0,0" TextWrapping="Wrap"
+                                   Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}" />
 
-                            <Border Style="{StaticResource StatusPanel}"
-                                    Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
-                                <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
-                                           FontSize="11.5" />
-                            </Border>
-
-                            <Border Style="{StaticResource StatusPanel}"
-                                    BorderBrush="{StaticResource WarningBrush}"
-                                    Visibility="{Binding RebootRequired, Converter={StaticResource BoolVis}}">
-                                <TextBlock Style="{StaticResource MutedText}" FontSize="11.5"
-                                           Text="Hay cambios que necesitan reinicio para tener efecto. Reiniciá el equipo y volvé a analizar: el tiempo de arranque se compara contra el valor de antes." />
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Grid>
+                        <TextBlock Style="{StaticResource MutedText}" FontSize="12" Margin="0,10,0,0"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   Text="Hace falta reiniciar para que los cambios tengan efecto."
+                                   Visibility="{Binding RebootRequired, Converter={StaticResource BoolVis}}" />
+                    </StackPanel>
+                </ScrollViewer>
 
                 <StackPanel Grid.Row="2" Margin="0,14,0,0">
                     <!-- Si la corrida se abortó (típico: no se pudo crear el punto de

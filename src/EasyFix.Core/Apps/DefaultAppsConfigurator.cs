@@ -162,20 +162,16 @@ public sealed class DefaultAppsConfigurator
             {
                 _logger.LogInformation("Asociaciones predeterminadas importadas: {What}.", what);
 
-                return new DefaultAppsResult(true,
-                    $"Se configuró {what} para los usuarios NUEVOS de este equipo. " +
-                    "Para el usuario que está abierto ahora, Windows no permite que un programa " +
-                    "lo cambie (lo bloquea desde 2024): usá el botón «Predeterminados» y marcalo " +
-                    "a mano, son dos clics.");
+                // El mensaje va corto: el alcance real (perfiles nuevos) y el motivo técnico
+                // están documentados en esta clase, no en la pantalla del técnico.
+                return new DefaultAppsResult(true, $"Se configuró {what}.");
             }
 
             _logger.LogWarning(
                 "DISM rechazó las asociaciones (código {Code}): {Error}",
                 result.ExitCode, result.StandardError);
 
-            return new DefaultAppsResult(false,
-                $"No se pudieron configurar los predeterminados (DISM devolvió {result.ExitCode}). " +
-                "Se pueden poner a mano con el botón «Predeterminados».");
+            return new DefaultAppsResult(false, "No se pudieron configurar los predeterminados.");
         }
         catch (OperationCanceledException)
         {

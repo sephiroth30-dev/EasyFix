@@ -45,6 +45,26 @@ public sealed partial class AppChoice : ObservableObject
     [ObservableProperty]
     private string? _statusDetail;
 
+    /// <summary>
+    /// El análisis detectó que este programa ya está en el equipo.
+    /// </summary>
+    /// <remarks>
+    /// Se desmarca la casilla: el técnico no tiene por qué pedir que se instale algo que ya
+    /// está. Antes marcaba Chrome sin saber que ya lo tenía, apretaba Instalar, y recién ahí la
+    /// app le decía «ya estaba» — trabajo y espera para nada.
+    /// </remarks>
+    public void MarkAlreadyPresent()
+    {
+        IsSelected = false;
+        StatusDetail = null;
+        IsAlreadyPresent = true;
+        Apply("Ya instalado", "ok");
+    }
+
+    /// <summary><c>true</c> si el análisis lo encontró instalado. Lo usa la vista para atenuarlo.</summary>
+    [ObservableProperty]
+    private bool _isAlreadyPresent;
+
     public void MarkInstalling()
     {
         StatusDetail = null;

@@ -615,6 +615,14 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _lastRunAborted;
 
+    /// <summary>
+    /// Título de la pantalla de resultado. Cambia según lo que se corrió: «Resultado de la
+    /// reparación» para una corrida completa no tiene sentido cuando el técnico solo pidió
+    /// actualizar controladores.
+    /// </summary>
+    [ObservableProperty]
+    private string _resultTitle = "Listo";
+
     /// <summary>Qué correr si el técnico aprieta «Reintentar». Se guarda al lanzar cada corrida.</summary>
     private (FixCategory Category, string? OnlyFixId, string? Label)? _lastRun;
 
@@ -849,6 +857,8 @@ public sealed partial class MainViewModel : ObservableObject
         // Reputación de lo instalado. Sin la lista no se afirma nada: va a «no determinado».
         if (installedPrograms is not null)
         {
+            MarkAlreadyInstalledApps(installedPrograms);
+
             IReadOnlyList<ReputationMatch> matches =
                 ReputationEvaluator.Match(installedPrograms, _options.Reputation.KnownBad);
 
@@ -989,6 +999,14 @@ public sealed partial class MainViewModel : ObservableObject
         // Para «Reintentar» desde la pantalla de resultado, si la corrida se aborta.
         _lastRun = (category, onlyFixId, label);
         LastRunAborted = false;
+
+        ResultTitle = onlyFixId switch
+        {
+            "drivers.update" => "Controladores",
+            null when category == FixCategory.Performance => "Resultado de la mejora",
+            null => "Resultado de la reparación",
+            _ => "Listo",
+        };
 
         RepairRows.Clear();
         StatusMessage = null;
@@ -1254,6 +1272,8 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
         CurrentStory = null;
         CurrentStoryTitle = null;
+        _pendingStory = null;
+        _storyShownAt = DateTimeOffset.MinValue;
         foreach (AppChoice app in selected) { app.Status = null; }
 
         var byId = selected.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -1292,24 +1312,9 @@ public sealed partial class MainViewModel : ObservableObject
                 ? $"Instalando {p.DisplayName}…"
                 : $"{p.DisplayName}: {DescribeOutcome(p.Finished)}";
 
-            // La historia se reemplaza cuando ARRANCA el siguiente programa, nunca se borra al
-            // terminar el actual. Borrarla al terminar hacía que un programa rápido —o uno que
-            // ya estaba instalado— mostrara su historia por una fracción de segundo y después
-            // nada: el técnico reportó justamente eso con 7-Zip. Así cada historia queda en
-            // pantalla hasta que haya otra que contar, y la última sobrevive al final de la tanda.
             if (p.Finished is null)
             {
-                WingetPackage? pkg = _options.WingetPackages.FirstOrDefault(
-                    x => string.Equals(x.Id, p.PackageId, StringComparison.OrdinalIgnoreCase));
-
-                CurrentStoryTitle = p.DisplayName;
-                CurrentStory = pkg?.Story;
-                CurrentBrandColor = pkg?.BrandColor;
-
-                // Sin inicial configurada, la primera letra del nombre. «7-Zip» la configura a
-                // mano porque la útil es el 7.
-                CurrentBrandInitial = pkg?.BrandInitial
-                    ?? (p.DisplayName.Length > 0 ? p.DisplayName[..1].ToUpperInvariant() : null);
+                ShowStoryFor(p.PackageId, p.DisplayName);
             }
 
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
@@ -1476,7 +1481,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (browser.IsExpected == true && pdf.IsExpected == true)
         {
-            return "Chrome y Acrobat Reader ya estaban como predeterminados: no hizo falta tocar nada.";
+            return null;
         }
 
         InstallProgressLabel = "Configurando programas predeterminados…";
@@ -1492,14 +1497,11 @@ public sealed partial class MainViewModel : ObservableObject
         if (chromeReady && browser.IsExpected != true) { pending.Add("el navegador"); }
         if (acrobatReady && pdf.IsExpected != true) { pending.Add("los PDF"); }
 
-        if (pending.Count == 0)
-        {
-            return defaults.Detail;
-        }
-
-        return $"{defaults.Detail} En este usuario falta confirmar {string.Join(" y ", pending)}: " +
-               "Windows no deja que un programa lo cambie solo. Usá el botón «Predeterminados» " +
-               "cuando quieras hacerlo, son dos clics.";
+        // Sin explicaciones de por qué Windows no deja hacerlo solo: eso es un problema de
+        // implementación, no del técnico que está trabajando. Una línea con lo que falta y listo.
+        return pending.Count == 0
+            ? null
+            : $"Falta elegir a mano {string.Join(" y ", pending)}.";
     }
 
     /// <summary>
@@ -1600,9 +1602,32 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ---- Helpers ----------------------------------------------------------------------------
 
+    /// <summary>
+    /// Prepara el token de una operación nueva, <b>cancelando la anterior si quedó viva</b>.
+    /// </summary>
+    /// <remarks>
+    /// Antes solo hacía <c>Dispose</c>, y desechar un <see cref="CancellationTokenSource"/> no
+    /// cancela nada: la operación anterior seguía corriendo contra un token que ya nadie iba a
+    /// disparar. Es el fallo que reportó el técnico — pidió instalar Notepad++ y la pantalla
+    /// volvió a mostrar la descarga de VLC con sus 207 MB, porque esa descarga nunca se había
+    /// detenido.
+    /// </remarks>
     private void ResetCancellation()
     {
-        _cts?.Dispose();
+        if (_cts is { } previous)
+        {
+            try
+            {
+                previous.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ya estaba desechado: no hay nada que cancelar.
+            }
+
+            previous.Dispose();
+        }
+
         _cts = new CancellationTokenSource();
     }
 
@@ -1681,6 +1706,108 @@ public sealed partial class MainViewModel : ObservableObject
             Severity.Warning => "warn",
             _ => "info",
         });
+
+    /// <summary>Cuándo se puso la historia que está en pantalla, para no pisarla antes de tiempo.</summary>
+    private DateTimeOffset _storyShownAt = DateTimeOffset.MinValue;
+
+    /// <summary>Historia que espera turno porque la anterior todavía no se pudo leer.</summary>
+    private (string PackageId, string DisplayName)? _pendingStory;
+
+    /// <summary>
+    /// Cuánto tiene que durar una historia en pantalla como mínimo.
+    /// </summary>
+    /// <remarks>
+    /// Son ~45 palabras a velocidad de lectura cómoda. Sin este piso, un programa que instala en
+    /// dos segundos —o que ya estaba instalado— mostraba su historia y la siguiente la pisaba
+    /// antes de que nadie llegara a leer la primera línea. El técnico lo reportó con 7-Zip: «no
+    /// alcancé a leerlo».
+    /// </remarks>
+    private static readonly TimeSpan MinimumStoryDwell = TimeSpan.FromSeconds(9);
+
+    /// <summary>
+    /// Pone en pantalla la historia de un programa, respetando el tiempo mínimo de la anterior.
+    /// </summary>
+    /// <remarks>
+    /// Si la historia actual todavía no cumplió su tiempo, la nueva queda en espera y entra
+    /// cuando corresponde. La instalación NO se frena por esto: sigue su curso, lo único que se
+    /// posterga es el cambio de texto en pantalla.
+    /// </remarks>
+    private void ShowStoryFor(string packageId, string displayName)
+    {
+        TimeSpan shown = DateTimeOffset.UtcNow - _storyShownAt;
+
+        if (CurrentStory is not null && shown < MinimumStoryDwell)
+        {
+            _pendingStory = (packageId, displayName);
+
+            TimeSpan remaining = MinimumStoryDwell - shown;
+
+            _ = Task.Delay(remaining).ContinueWith(_ =>
+            {
+                if (_pendingStory is { } pending)
+                {
+                    _pendingStory = null;
+                    ApplyStory(pending.PackageId, pending.DisplayName);
+                }
+            },
+            TaskScheduler.FromCurrentSynchronizationContext());
+
+            return;
+        }
+
+        ApplyStory(packageId, displayName);
+    }
+
+    private void ApplyStory(string packageId, string displayName)
+    {
+        WingetPackage? pkg = _options.WingetPackages.FirstOrDefault(
+            x => string.Equals(x.Id, packageId, StringComparison.OrdinalIgnoreCase));
+
+        CurrentStoryTitle = displayName;
+        CurrentStory = pkg?.Story;
+        CurrentBrandColor = pkg?.BrandColor;
+
+        // Sin inicial configurada, la primera letra del nombre. «7-Zip» la configura a mano
+        // porque la útil es el 7.
+        CurrentBrandInitial = pkg?.BrandInitial
+            ?? (displayName.Length > 0 ? displayName[..1].ToUpperInvariant() : null);
+
+        _storyShownAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Desmarca los programas que el análisis ya encontró instalados.
+    /// </summary>
+    /// <remarks>
+    /// <para>El análisis ya lee las claves <c>Uninstall</c> para el catálogo de reputación, así
+    /// que el dato está ahí sin costo extra. Antes no se usaba para esto: el técnico veía Chrome
+    /// marcado, apretaba Instalar, y recién al final la app le decía «ya estaba instalado».</para>
+    ///
+    /// <para>El nombre a buscar sale de <c>detectDisplayName</c> cuando está configurado —el mismo
+    /// que usa la descarga directa para no reinstalar— y si no, del nombre del paquete. Un nombre
+    /// corto podría matchear otro programa y desmarcar algo que sí hace falta instalar, por eso se
+    /// exige un largo mínimo, igual que en la otra comprobación.</para>
+    /// </remarks>
+    private void MarkAlreadyInstalledApps(IReadOnlyList<InstalledProgram> installed)
+    {
+        foreach (AppChoice app in Apps)
+        {
+            string needle = app.Package.Direct?.DetectDisplayName ?? app.Name;
+
+            if (needle.Trim().Length < 5)
+            {
+                continue; // demasiado corto para identificar sin riesgo de matchear otra cosa
+            }
+
+            bool present = installed.Any(p =>
+                p.DisplayName.Contains(needle, StringComparison.OrdinalIgnoreCase));
+
+            if (present)
+            {
+                app.MarkAlreadyPresent();
+            }
+        }
+    }
 
     /// <summary>
     /// Arma el resumen de lo que necesita atención — lo que se ve al abrir la app.
