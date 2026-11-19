@@ -34,6 +34,33 @@ El log tiene el detalle de cada sonda, cada llamada a winget con su código de s
 
 ---
 
+## Nivel 0.5 — Diseño nuevo (v0.9.5) · SEGURO, no modifica nada
+
+El rediseño horizontal con barra lateral compiló limpio pero **nunca se vio renderizado** — esto es
+lo primero a mirar, antes de cualquier otra cosa, porque si algo se ve mal acá probablemente afecta
+a todas las pantallas siguientes.
+
+- [ ] La ventana abre en **1000×640**, no 460×620 como antes. Esquinas redondeadas visibles
+      (si el equipo es Windows 11; en Windows 10 puede no notarse, y eso es lo esperado).
+- [ ] **Barra lateral izquierda** (~248 px) con las 4 acciones + sus iconos, y la identidad del
+      equipo arriba (antes de analizar dice «Pulsá Analizar para empezar»).
+- [ ] Los iconos de la barra (lupa, rayo, llave, flecha de descarga) se ven como se espera — no
+      como un cuadrado vacío o un signo de interrogación (señal de que la fuente de iconos no
+      resolvió el símbolo).
+- [ ] Pantalla de Inicio: **ya no tiene los 4 botones grandes**, solo el mensaje central
+      «Elegí una acción en el panel izquierdo para empezar».
+- [ ] Pantalla de **Reporte**: dos columnas lado a lado, cada una con su propio scroll
+      independiente. Ningún texto se corta ni se superpone con la columna vecina.
+- [ ] Mismo chequeo en la pantalla de **Resultado de la reparación** (después de Mejorar/Reparar).
+- [ ] Los botones (Analizar, Mejorar, etc.) siguen funcionando igual que antes — el rediseño no
+      debería haber cambiado ningún comando, solo dónde vive cada cosa en pantalla.
+
+### Qué capturar
+Captura de pantalla de cada una de las 7 pantallas (Inicio, Analizando, Reporte, Instalar,
+Reparando, Resultado, Deshacer). Es lo único que permite ajustar anchos/márgenes sin adivinar.
+
+---
+
 ## Nivel 1 — Diagnóstico · SEGURO, no modifica nada
 
 Se puede correr en cualquier equipo, incluso de un cliente, sin riesgo. Es todo solo lectura.

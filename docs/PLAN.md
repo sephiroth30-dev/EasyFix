@@ -936,38 +936,64 @@ lugar donde cualquier instalador los deja. Un junction hacia `C:\Users\...\Docum
 ---
 
 ## UI minimalista
-**Estado: implementado** (`App/Views/MainWindow.xaml`). Cuatro paneles en la misma ventana, que se
-muestran u ocultan según `CurrentScreen` — sin navegación, sin ventanas nuevas.
+**Estado: implementado, SIN VERIFICAR VISUALMENTE** (`App/Views/MainWindow.xaml`). Compila limpio
+en Release con 0 warnings — eso valida XAML y C#, incluidos los nombres de símbolo de WPF-UI (un
+enum: un nombre inválido no compila). **Lo que NO valida es cómo se ve.** No hay forma de renderizar
+WPF desde macOS; la próxima vez que se abra en Windows real es la primera vez que alguien lo ve.
 
-Ventana de 460 × 620, no redimensionable, chrome propio, tema oscuro fijo, un solo color de acento
-(`#4C9AFF`), `Segoe UI Variable`. Cero gradientes, cero iconos decorativos. Todo en español,
-redactado para que el cliente lo entienda.
+### v0.9.5 — horizontal, con barra lateral, dos columnas
+
+Motivo: en 460×620 todo quedaba apretado en una sola columna angosta — el reporte (checklist +
+software + hardware + no determinado) era una lista larga para scrollear, y las 4 acciones
+principales competían por el mismo espacio que el contenido.
+
+- **Ventana 1000×640**, no redimensionable (misma decisión de antes, por ahora). `ui:FluentWindow`
+  (WPF-UI, `lepoco/wpfui` en GitHub, MIT, ~9800 estrellas) en vez de `Window` — **el único cambio
+  real de esa librería**: esquinas redondeadas nativas de Windows 11 vía `WindowCornerPreference`.
+  No se tocó Mica/Acrylic: exige fondo translúcido, y el tema oscuro sólido es una decisión previa
+  deliberada que no vale la pena arriesgar sin poder ver el resultado.
+- **Barra lateral persistente (248 px, izquierda)**, siempre visible sin importar la pantalla:
+  identidad del equipo (antes se repetía arriba de Inicio y de Reporte, ahora vive en un solo
+  lugar) + las 4 acciones como navegación + «Deshacer» al pie cuando hay algo que revertir. La
+  pantalla de Inicio deja de tener los 4 botones grandes — están en la barra, no duplicados.
+- **Reporte y Resultado de la reparación a DOS COLUMNAS** — el cambio que de verdad ataca lo
+  «apretado»: columna izquierda = lo medible/arreglable (checklist, software), columna derecha =
+  lo que necesita hardware + lo no determinado (o, en el resultado, lo que se hizo). Cada columna
+  scrollea por separado.
+- **Iconos funcionales, no decorativos** (`ui:SymbolIcon`) — la única desviación de «cero iconos
+  decorativos»: van solo en la barra lateral, uno por acción, para que se puedan reconocer de un
+  vistazo en una lista vertical angosta. Las filas del reporte, los botones de texto y el resto
+  siguen sin un solo icono, como antes.
+- **Todo lo demás es el mismo Theme.xaml de siempre** — `ActionButton`, `PrimaryButton`,
+  `GhostButton`, `AppCheckBox`, `ProgressBarStyle`, franjas de color por gravedad. No se reescribió
+  nada que ya estuviera probado; se le agregó un estilo nuevo (`SidebarNavButton`, mismo template
+  que `ActionButton`, más compacto) y se reorganizó el layout alrededor.
 
 ```
-Inicio                                   Reporte
-┌──────────────────────────────────┐    ┌──────────────────────────────────┐
-│  EasyFix                  — ✕    │    │  EasyFix                  — ✕    │
-│                                  │    │  Windows 10 · HP 240 · i5-8250U  │
-│  Windows 10 · HP 240 · i5-8250U  │    │  8 GB · Disco mecánico 500 GB    │
-│  8 GB · Disco mecánico 500 GB    │    │                                  │
-│                                  │    │  LO QUE PUEDO ARREGLAR           │
-│  ┌────────────────────────────┐  │    │  ▍14 programas en el inicio      │
-│  │ Analizar el equipo         │  │    │    Retrasan 31,4 s               │
-│  │ Solo lectura. No modifica  │  │    │  ▍Dos antivirus activos          │
-│  └────────────────────────────┘  │    │                                  │
-│  ┌────────────────────────────┐  │    │  LO QUE NECESITA HARDWARE        │
-│  │ Reparar errores            │  │    │  ▍Cambiar el disco por un SSD    │
-│  └────────────────────────────┘  │    │    Arranque actual 94,0 s        │
-│  ┌────────────────────────────┐  │    │  ▍Ampliar la RAM a 16 GB         │
-│  │ Instalar programas         │  │    │                                  │
-│  └────────────────────────────┘  │    │  NO SE PUDO DETERMINAR           │
-│                                  │    │                                  │
-└──────────────────────────────────┘    │  [ Volver ] [ Mejorar rendim. ]  │
-                                        └──────────────────────────────────┘
+Reporte (dos columnas)
+┌──────────┬──────────────────────┬──────────────────────┐
+│ Analizar │ ESTADO DEL EQUIPO    │ LO QUE NECESITA       │
+│ Mejorar  │ ▍12 condiciones      │ HARDWARE              │
+│ Reparar  │                      │ ▍Cambiar a SSD        │
+│ Instalar │ LO QUE PUEDO         │ ▍Ampliar RAM          │
+│          │ ARREGLAR             │                       │
+│ Windows  │ ▍14 progr. de inicio │ NO SE PUDO DETERMINAR │
+│ 10 · HP  │ ▍Dos antivirus       │                       │
+│ 240      │                      │ [Volver] [Mejorar]    │
+└──────────┴──────────────────────┴──────────────────────┘
 ```
 
-Las otras dos: **Analizando** (barra indeterminada + la sonda en curso + Cancelar) e **Instalar
-programas** (lista de casillas con estado por programa: *Instalado* / *Ya estaba* / *Falló*).
+**Pendiente, en orden:** probarlo en un Windows real (ver `docs/PRUEBAS.md`, falta agregar el
+nivel) — qué puede salir mal sin haberlo visto: anchos de columna que no alcancen para el texto más
+largo del catálogo, el `WindowCornerPreference` sin efecto en Windows 10 (es una API de Windows 11;
+en Windows 10 debería ignorarse sola, sin romper nada, pero no está confirmado), y los símbolos de
+`ui:SymbolIcon` pueden compilar pero rendirse distinto a lo esperado si la versión de la fuente de
+iconos del equipo difiere.
+
+Las otras dos pantallas de un solo flujo: **Analizando** (barra indeterminada + la sonda en curso +
+Cancelar) e **Instalar programas** (lista de casillas con estado por programa: *Instalado* / *Ya
+estaba* / *Falló*) — quedaron centradas en una columna de ancho cómodo dentro del panel de
+contenido, sin forzarlas a ocupar todo el ancho nuevo porque no tienen contenido para llenarlo.
 
 Detalles que importan:
 

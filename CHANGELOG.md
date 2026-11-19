@@ -17,6 +17,36 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.5] — 2026-11-18
+
+Rediseño de la interfaz: horizontal con barra lateral, en vez del panel vertical único donde todo
+quedaba apretado en una sola columna angosta.
+
+### Agregado
+
+- **`ui:FluentWindow`** de WPF-UI (`lepoco/wpfui` en GitHub, MIT, ~9800 estrellas) en vez de
+  `Window` — único uso real de la librería: esquinas redondeadas nativas de Windows 11
+  (`WindowCornerPreference`). No se tocó Mica/Acrylic: exige fondo translúcido y no hay forma de
+  verificar el resultado sin verlo renderizado.
+- **Ventana 1000×640** con **barra lateral persistente** (248 px): identidad del equipo (antes se
+  repetía arriba de Inicio y de Reporte) + las 4 acciones como navegación + «Deshacer» al pie. La
+  pantalla de Inicio deja los 4 botones grandes, que ahora viven solo en la barra.
+- **Reporte y Resultado de la reparación en dos columnas** — el cambio que ataca directamente lo
+  apretado: izquierda lo medible/arreglable, derecha lo que necesita hardware y lo no determinado.
+- **Iconos funcionales** (`ui:SymbolIcon`) en la barra lateral — la única excepción a «cero iconos
+  decorativos», documentada: ayudan a reconocer las 4 acciones de un vistazo en una lista angosta.
+- Todos los estilos existentes (`ActionButton`, `PrimaryButton`, `AppCheckBox`,
+  `ProgressBarStyle`…) se mantuvieron intactos; se agregó un estilo nuevo (`SidebarNavButton`) y
+  se reorganizó el layout alrededor de ellos, en vez de reescribir lo que ya estaba probado.
+
+**Probado:** build Release 0 warnings — valida XAML y C#, incluidos los nombres de símbolo de
+WPF-UI (son un enum: un nombre inválido no compila). 531 tests de `EasyFix.Core` sin cambios (la UI
+no tiene tests, nunca los tuvo). **Lo que esto NO prueba: cómo se ve.** No hay forma de renderizar
+WPF desde macOS — es la primera vez en todo el proyecto que se entrega una pantalla sin haberla
+visto ni una vez. Ver Nivel 0.5 de `docs/PRUEBAS.md`, el primer chequeo a hacer en Windows real.
+
+---
+
 ## [0.9.4] — 2026-11-18
 
 Revisión adversarial del bootstrap de winget de v0.9.3 (el cambio de mayor riesgo hasta ahora:
