@@ -17,6 +17,39 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.11.1] — 2026-11-19
+
+Reporte de uso: «no me dejó predeterminado Chrome después de la instalación aunque la cancelé».
+Eran dos fallos distintos, los dos míos.
+
+### Corregido
+
+- **Cancelar la tanda se saltaba los predeterminados por completo.** El paso vivía después de
+  `InstallAsync` dentro del mismo `try`, así que al cancelar la excepción lo salteaba — y lo que
+  ya se había instalado quedaba instalado pero sin asociar. Ahora los resultados se acumulan
+  paquete por paquete y los predeterminados se aplican igual a lo que alcanzó a instalarse:
+  cancelar corta la tanda, no deshace lo hecho.
+- **El paso no se notaba aunque funcionara.** DISM escribe las asociaciones solo para los
+  perfiles de usuario que se creen después, así que en el perfil abierto —el caso real del
+  técnico— no cambiaba nada visible. Ahora, además del DISM, se **abre Configuración directo en
+  la página del programa** (`registeredAppUser` en Windows 11) para que confirmarlo sea un clic
+  en vez de navegar el menú. Sigue sin haber vía totalmente automática para el perfil actual:
+  Windows lo bloquea con el hash de `UserChoice` y el driver `UCPD.sys`, y saltearlo exige
+  desactivar ese driver — el «Tier C» del plan.
+
+### Sobre los programas que ya están instalados
+
+Vale dejarlo escrito porque es una duda razonable: **winget los reporta como «ya estaba
+instalado», no como error.** El resumen los cuenta aparte (`N ya estaba(n) instalado(s)`),
+`PackageAvailable` es `true`, y por lo tanto **sí entran en la configuración de predeterminados**
+— que es lo correcto para un equipo que ya tenía Chrome. Lo que EasyFix **no** hace es
+actualizarlos: `winget install` sobre algo ya presente no actualiza nada. Si hiciera falta,
+sería otra acción distinta y explícita.
+
+**Probado:** 573 tests (571 + 2 omitidos), build Release 0 warnings. Sin verificar en Windows.
+
+---
+
 ## [0.11.0] — 2026-11-19
 
 Cinco mejoras de interfaz que salieron de usar la app de verdad.

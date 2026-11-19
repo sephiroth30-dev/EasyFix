@@ -142,7 +142,9 @@ public sealed partial class MainViewModel : ObservableObject
         });
 
         DiagnoseWingetCommand = new AsyncRelayCommand(DiagnoseWingetAsync, () => !IsBusy);
-        OpenDefaultAppsCommand = new RelayCommand(OpenDefaultApps);
+        // El botón abre la pantalla general; el salto directo a un programa lo usa el flujo
+        // automático de después de instalar.
+        OpenDefaultAppsCommand = new RelayCommand(() => OpenDefaultApps());
 
         OpenUndoCommand = new RelayCommand(OpenUndo);
         UndoCommand = new AsyncRelayCommand(UndoAsync, () => !IsBusy && _undoTarget is not null);
@@ -1127,8 +1129,18 @@ public sealed partial class MainViewModel : ObservableObject
         // paquete). El técnico quedaba mirando una barra sin forma de salir salvo matar la app.
         ResetCancellation();
 
+        // Lo que YA terminó, paquete por paquete. Hace falta aparte del valor de retorno porque
+        // al cancelar, InstallAsync tira y ese valor se pierde — y lo que se alcanzó a instalar
+        // antes de cancelar sigue instalado, así que sus predeterminados corresponden igual.
+        var completed = new List<WingetResult>();
+
         var progress = new Progress<InstallProgress>(p =>
         {
+            if (p.Finished is { } finished)
+            {
+                completed.Add(finished);
+            }
+
             ProgressIsIndeterminate = false;
 
             // El paquete en curso cuenta como medio hecho: así la barra se mueve mientras descarga,
@@ -1179,22 +1191,10 @@ public sealed partial class MainViewModel : ObservableObject
                 ? $"{note} {WingetResultParser.Summarize(results)}"
                 : WingetResultParser.Summarize(results);
 
-            // Dejar Chrome y Reader como predeterminados, sin preguntar: si el técnico los acaba
-            // de instalar, es lo que quiere. Solo se intenta para los que QUEDARON disponibles —
-            // asociar un programa que no se instaló dejaría una asociación rota.
-            bool chromeReady = results.Any(r =>
-                r.PackageAvailable && r.PackageId.Contains("Chrome", StringComparison.OrdinalIgnoreCase));
-            bool acrobatReady = results.Any(r =>
-                r.PackageAvailable && r.PackageId.Contains("Acrobat", StringComparison.OrdinalIgnoreCase));
-
-            if (chromeReady || acrobatReady)
+            string? defaultsNote = await ApplyDefaultAppsAsync(results);
+            if (defaultsNote is not null)
             {
-                InstallProgressLabel = "Configurando programas predeterminados…";
-
-                DefaultAppsResult defaults = await _defaultApps
-                    .ApplyAsync(chromeReady, acrobatReady, _cts!.Token);
-
-                summary = $"{summary} {defaults.Detail}";
+                summary = $"{summary} {defaultsNote}";
             }
 
             SetStatus(summary, warning: results.Any(r => !r.PackageAvailable));
@@ -1210,9 +1210,15 @@ public sealed partial class MainViewModel : ObservableObject
             // ya arrancó termina igual; lo que se corta es la tanda, no el paquete en curso.
             _logger.LogInformation("La instalación se canceló.");
             InstallProgressLabel = null;
+
+            // Los predeterminados de lo que SÍ alcanzó a instalarse corresponden igual: cancelar
+            // la tanda no deshace lo ya instalado. Antes esto se salteaba entero y Chrome quedaba
+            // instalado pero sin asociar — el caso que reportó el técnico.
+            string? defaultsNote = await ApplyDefaultAppsAsync(completed, CancellationToken.None);
+
             SetStatus(
                 "Instalación cancelada. Lo que ya se había instalado quedó instalado; el resto " +
-                "de la lista no se intentó.",
+                "de la lista no se intentó. " + (defaultsNote ?? string.Empty),
                 warning: true);
         }
         catch (Exception ex)
@@ -1227,6 +1233,51 @@ public sealed partial class MainViewModel : ObservableObject
             ProgressLabel = string.Empty;
             ProgressStep = null;
         }
+    }
+
+    /// <summary>
+    /// Deja Chrome y Acrobat Reader como predeterminados, hasta donde Windows lo permite.
+    /// </summary>
+    /// <remarks>
+    /// <para>Dos pasos, porque ninguno solo alcanza:</para>
+    /// <list type="number">
+    /// <item><b>DISM</b> escribe las asociaciones para los perfiles de usuario que se creen
+    /// después. Es la vía oficial y no requiere desactivar nada, pero <b>no toca el perfil que
+    /// está abierto</b>.</item>
+    /// <item><b>Se abre Configuración</b> en la página del programa, para que el técnico lo
+    /// confirme con un clic. Windows bloquea a propósito hacerlo por software en el perfil
+    /// actual (hash de <c>UserChoice</c> + driver <c>UCPD.sys</c>), así que esto es el máximo
+    /// nivel de automatización que existe sin romper una protección del sistema.</item>
+    /// </list>
+    ///
+    /// <para>Devuelve el texto para el resumen, o <c>null</c> si no había nada que asociar.</para>
+    /// </remarks>
+    private async Task<string?> ApplyDefaultAppsAsync(
+        IReadOnlyList<WingetResult> results, CancellationToken? ct = null)
+    {
+        // Solo lo que QUEDÓ disponible en el equipo — incluye «ya estaba instalado», que es
+        // exactamente el caso de un equipo que ya tenía Chrome: la asociación corresponde igual.
+        bool chromeReady = results.Any(r =>
+            r.PackageAvailable && r.PackageId.Contains("Chrome", StringComparison.OrdinalIgnoreCase));
+        bool acrobatReady = results.Any(r =>
+            r.PackageAvailable && r.PackageId.Contains("Acrobat", StringComparison.OrdinalIgnoreCase));
+
+        if (!chromeReady && !acrobatReady)
+        {
+            return null;
+        }
+
+        InstallProgressLabel = "Configurando programas predeterminados…";
+
+        DefaultAppsResult defaults = await _defaultApps
+            .ApplyAsync(chromeReady, acrobatReady, ct ?? CancellationToken.None);
+
+        // Abrir la página del programa en Configuración, para que el clic de confirmación sea uno
+        // solo en vez de navegar el menú. El parámetro registeredAppUser lo entiende Windows 11;
+        // en Windows 10 cae en la pantalla general, que también sirve.
+        OpenDefaultApps(chromeReady ? "Google Chrome" : "Adobe Acrobat Reader");
+
+        return defaults.Detail;
     }
 
     /// <summary>
@@ -1249,17 +1300,28 @@ public sealed partial class MainViewModel : ObservableObject
     /// <para>Entonces se hace lo honesto: llevar al técnico al lugar exacto en dos clics, en vez
     /// de prometer una automatización que Windows no permite.</para>
     /// </remarks>
-    private void OpenDefaultApps()
+    /// <param name="appName">
+    /// Programa al que saltar dentro de Configuración (Windows 11). <c>null</c> abre la pantalla
+    /// general. Solo se aceptan los nombres fijos que EasyFix instala — ver abajo.
+    /// </param>
+    private void OpenDefaultApps(string? appName = null)
     {
         try
         {
-            // ms-settings: es el esquema oficial de Windows para abrir Configuración en una
-            // página concreta. UseShellExecute = true es obligatorio para que el shell resuelva
-            // el esquema; es la única invocación de la app que lo usa, y no lleva ningún dato
-            // variable: la URI es una constante, no se concatena nada del equipo.
+            // El nombre NO se concatena crudo: se mapea contra una tabla fija. Esta URI la
+            // resuelve el shell de Windows (UseShellExecute = true, el único lugar de la app que
+            // lo usa), así que armarla con texto libre sería meter datos del equipo en algo que
+            // interpreta el sistema. Con una tabla cerrada, no hay nada que inyectar.
+            string target = appName switch
+            {
+                "Google Chrome" => "ms-settings:defaultapps?registeredAppUser=Google%20Chrome",
+                "Adobe Acrobat Reader" => "ms-settings:defaultapps?registeredAppUser=Adobe%20Acrobat%20Reader",
+                _ => "ms-settings:defaultapps",
+            };
+
             using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "ms-settings:defaultapps",
+                FileName = target,
                 UseShellExecute = true,
             });
 
