@@ -472,9 +472,27 @@
                             IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
                     <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
                             Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico." />
+                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico."
+                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+
+                    <!-- Durante la instalación, «Instalar» se reemplaza por «Cancelar»: antes no
+                         había forma de salir de una tanda larga salvo matar la app. -->
                     <Button Content="Instalar" Command="{Binding RunInstallCommand}"
-                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
+                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+                    <Button Content="Cancelar" Command="{Binding CancelCommand}"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            ToolTip="Corta la tanda. El programa que ya se esté instalando termina igual."
+                            Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
+
+                    <!-- Después de instalar: atajo a la pantalla de Windows donde se eligen el
+                         navegador y el lector de PDF predeterminados. Windows NO permite que un
+                         programa los cambie solo (driver UCPD + hash por usuario); esto abre el
+                         lugar exacto para hacerlo en dos clics. -->
+                    <Button Content="Predeterminados" Command="{Binding OpenDefaultAppsCommand}"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            ToolTip="Abre la pantalla de Windows para poner Chrome como navegador y Acrobat Reader para los PDF."
+                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
                 </StackPanel>
             </Grid>
 

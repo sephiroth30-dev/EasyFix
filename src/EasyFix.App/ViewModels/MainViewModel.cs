@@ -134,6 +134,7 @@ public sealed partial class MainViewModel : ObservableObject
         });
 
         DiagnoseWingetCommand = new AsyncRelayCommand(DiagnoseWingetAsync, () => !IsBusy);
+        OpenDefaultAppsCommand = new RelayCommand(OpenDefaultApps);
 
         OpenUndoCommand = new RelayCommand(OpenUndo);
         UndoCommand = new AsyncRelayCommand(UndoAsync, () => !IsBusy && _undoTarget is not null);
@@ -150,6 +151,7 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand BackCommand { get; }
     public IRelayCommand InstallAppsCommand { get; }
     public IAsyncRelayCommand DiagnoseWingetCommand { get; }
+    public IRelayCommand OpenDefaultAppsCommand { get; }
     public IRelayCommand OpenUndoCommand { get; }
     public IAsyncRelayCommand UndoCommand { get; }
 
@@ -1086,6 +1088,11 @@ public sealed partial class MainViewModel : ObservableObject
 
         ResetProgress("Instalando programas");
 
+        // Antes acá iba CancellationToken.None: instalar programas era la ÚNICA operación larga
+        // de la app que no se podía cancelar, y es la que más tarda (descarga + instalador por
+        // paquete). El técnico quedaba mirando una barra sin forma de salir salvo matar la app.
+        ResetCancellation();
+
         var progress = new Progress<InstallProgress>(p =>
         {
             ProgressIsIndeterminate = false;
@@ -1112,7 +1119,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             IReadOnlyList<WingetResult> results = await _winget.InstallAsync(
-                selected.Select(a => a.Package).ToList(), progress, CancellationToken.None);
+                selected.Select(a => a.Package).ToList(), progress, _cts!.Token);
 
             InstallProgressLabel = null;
 
@@ -1131,6 +1138,17 @@ public sealed partial class MainViewModel : ObservableObject
                 _logger.LogWarning("{PackageId}: {Detail}", failed.PackageId, failed.Detail);
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Cancelar no es un fallo. Lo que ya se instaló quedó instalado — un instalador que
+            // ya arrancó termina igual; lo que se corta es la tanda, no el paquete en curso.
+            _logger.LogInformation("La instalación se canceló.");
+            InstallProgressLabel = null;
+            SetStatus(
+                "Instalación cancelada. Lo que ya se había instalado quedó instalado; el resto " +
+                "de la lista no se intentó.",
+                warning: true);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "La instalación falló.");
@@ -1140,6 +1158,59 @@ public sealed partial class MainViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            ProgressLabel = string.Empty;
+            ProgressStep = null;
+        }
+    }
+
+    /// <summary>
+    /// Abre la pantalla de Windows donde se eligen las aplicaciones predeterminadas.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Por qué no se hace solo, que es lo que uno querría.</b> Windows bloquea
+    /// deliberadamente que un programa cambie el navegador o el lector de PDF predeterminados: el
+    /// valor va firmado con un hash por usuario+equipo que Microsoft no documenta, y desde las
+    /// actualizaciones de febrero de 2024 hay además un driver (<c>UCPD.sys</c>, User Choice
+    /// Protection Driver) que impide escribir esas claves del registro aunque se tenga el hash
+    /// correcto.</para>
+    ///
+    /// <para>Las herramientas que lo logran igual (SetUserFTA y similares) necesitan
+    /// <b>desactivar ese driver</b> primero. Eso es exactamente lo que el «Tier C — NO construir»
+    /// de <c>docs/PLAN.md</c> prohíbe: pelearse con una protección de Windows, con el agregado de
+    /// que se rompe en cada actualización grande y dejaría a EasyFix haciendo algo que un
+    /// antivirus razonablemente marca como sospechoso.</para>
+    ///
+    /// <para>Entonces se hace lo honesto: llevar al técnico al lugar exacto en dos clics, en vez
+    /// de prometer una automatización que Windows no permite.</para>
+    /// </remarks>
+    private void OpenDefaultApps()
+    {
+        try
+        {
+            // ms-settings: es el esquema oficial de Windows para abrir Configuración en una
+            // página concreta. UseShellExecute = true es obligatorio para que el shell resuelva
+            // el esquema; es la única invocación de la app que lo usa, y no lleva ningún dato
+            // variable: la URI es una constante, no se concatena nada del equipo.
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "ms-settings:defaultapps",
+                UseShellExecute = true,
+            });
+
+            SetStatus(
+                "Se abrió la pantalla de aplicaciones predeterminadas de Windows. Buscá «Google " +
+                "Chrome» y tocá «Establecer como predeterminado» para el navegador, y «Adobe " +
+                "Acrobat Reader» para «.pdf». Windows no permite que un programa haga este cambio " +
+                "solo: lo bloquea a propósito desde 2024.",
+                warning: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo abrir la configuración de aplicaciones predeterminadas.");
+            SetStatus(
+                "No se pudo abrir la pantalla de Configuración. Abrila a mano: Inicio → " +
+                "Configuración → Aplicaciones → Aplicaciones predeterminadas.",
+                warning: true);
         }
     }
 

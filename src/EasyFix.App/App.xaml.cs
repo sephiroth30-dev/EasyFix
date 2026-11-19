@@ -12,6 +12,7 @@ using EasyFix.Core.Classification;
 using EasyFix.Core.Cleaning;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Diagnostics;
+using EasyFix.Core.Drivers;
 using EasyFix.Core.Fixes;
 using EasyFix.Core.Network;
 using EasyFix.Core.Processes;
@@ -136,6 +137,12 @@ public partial class App : Application
         services.AddSingleton<IFix, NetworkStackResetFix>();
         services.AddSingleton<IFix, ScheduleMemoryTestFix>();
         services.AddSingleton<IFix, RemoveCorrelatedUpdateFix>();
+
+        // Busca e instala drivers de bajo riesgo desde el catálogo de Windows Update (COM tardío,
+        // sin NuGet nuevo — ver la remark de WindowsUpdateDriverCatalog para el riesgo real: es
+        // el código menos verificable del proyecto, nunca corrió contra un catálogo real).
+        services.AddSingleton<IDriverCatalog, WindowsUpdateDriverCatalog>();
+        services.AddSingleton<IFix, DriverUpdateFix>();
 
         // Los IDiagnosticCheck se registran acá a medida que se implementen; DiagnosticEngine
         // recibe la colección, que hoy está vacía a propósito.

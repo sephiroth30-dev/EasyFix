@@ -204,6 +204,34 @@ Log completo + salida de `winget --version` manual + captura de la pantalla de A
 
 ---
 
+## Nivel 1.9 — Controladores · MODIFICA el equipo (instala drivers reales)
+
+**El más riesgoso de todos los niveles.** El catálogo de drivers usa COM tardío: ningún build
+valida que la API exista, así que esta es literalmente la primera vez que el código corre. Probar
+primero en una VM con snapshot, nunca directo en el equipo de un cliente.
+
+- [ ] Correr «Reparar errores» con internet. En el log tiene que aparecer
+      `Catálogo de drivers: N actualización(es) disponibles` — si dice «No se pudo consultar»,
+      copiar el error textual: ahí está el nombre del miembro COM que no existe.
+- [ ] **Lo que se instaló solo tiene que ser únicamente de clase segura** (red, video, audio, USB,
+      Bluetooth, impresora, entrada). Si se instaló un driver de almacenamiento, es un bug grave
+      del clasificador — reportarlo con el título exacto que mostró.
+- [ ] **Si había firmware/BIOS en el catálogo, NO puede haberse instalado.** Tiene que aparecer
+      solo nombrado, con el aviso de ir al fabricante.
+- [ ] Los de almacenamiento aparecen listados con su nombre y sin instalar.
+- [ ] Sin internet, «Reparar errores» tiene que saltear este paso con el motivo visible («necesita
+      internet»), no fallar.
+- [ ] Comparar los títulos que muestra EasyFix contra lo que ofrece
+      `Configuración → Windows Update → Opciones avanzadas → Actualizaciones opcionales`:
+      deberían ser los mismos drivers.
+
+### Qué capturar
+El log completo (trae los títulos exactos y la clasificación de cada uno) + captura de
+«Actualizaciones opcionales» de Windows para comparar. **Si algo se clasificó mal, el título
+textual es el dato que permite corregir el clasificador.**
+
+---
+
 ## Nivel 2 — Instalar programas · MODIFICA el equipo
 
 Instala software. En un equipo propio primero.

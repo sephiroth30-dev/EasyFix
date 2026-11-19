@@ -743,6 +743,38 @@ Todo lo que sigue es del escaneo rápido salvo lo marcado 🐌 (profundo).
 - Vaciar papelera de reciclaje (**es data del usuario** — jamás automático).
 - Reset de red: `netsh winsock reset` + `netsh int ip reset` (requiere reboot).
 
+### Controladores — la excepción acotada al Tier C (v0.10.0)
+
+«Instalar drivers automáticamente» estaba en Tier C y **sigue estándolo para todo lo que no esté
+en la lista blanca**. Lo que se construyó es más chico y más seguro que eso:
+
+- **Fuente única: el catálogo de Windows Update** (`Microsoft.Update.Session`, COM). Es la misma
+  vía que usaría Windows solo, con drivers ya validados y firmados para el hardware exacto de ese
+  equipo. Lo que Tier C prohíbe es *adivinar* un driver — que es lo que hacen Driver Booster y
+  DriverPack, ambos en el catálogo de PUP de `appsettings.json`.
+- **`Core/Drivers/DriverRiskClassifier`** parte lo disponible en tres: `Safe` (red, video, audio,
+  USB, Bluetooth, impresora, entrada) se instala solo; `NeedsConfirmation` (almacenamiento, y todo
+  lo que no matchee la lista blanca) se informa sin tocar; `Firmware` (BIOS/UEFI) nunca se ofrece —
+  mismo tratamiento que el disco mecánico: se nombra y se manda al fabricante, porque un flasheo
+  fallido es daño físico, no «reinstalar».
+- **Es lista blanca, y eso es el diseño entero.** Un título con formato inesperado cae en
+  `NeedsConfirmation`, nunca en `Safe` por descarte.
+- **`Core/Drivers/WindowsUpdateDriverCatalog` es el código menos verificable del proyecto**: COM
+  tardío con `dynamic`, así que el compilador no valida ni que los miembros existan. Por eso toda
+  la decisión vive en el clasificador y en `DriverUpdateFix` (lógica pura, testeada), y la clase
+  COM queda detrás de `IDriverCatalog` haciendo lo mínimo.
+
+### Predeterminados (navegador y PDF) — por qué NO se automatiza
+
+Pedido real del técnico, y la respuesta tuvo que ser que Windows no lo permite: el valor de
+`UserChoice` va firmado con un hash por usuario+equipo que Microsoft no documenta, y desde las
+actualizaciones de febrero de 2024 el driver `UCPD.sys` bloquea la escritura de esas claves aunque
+se tenga el hash correcto. Las herramientas que lo consiguen igual (SetUserFTA) exigen desactivar
+ese driver — pelearse con una protección del sistema, que es exactamente lo que define el Tier C, y
+encima frágil ante cada actualización grande. **Lo implementado**: un botón que abre
+`ms-settings:defaultapps` con la instrucción de qué marcar. Dos clics del técnico, cero promesas
+falsas.
+
 ### Tier C — NO construir. Mitos y cosas dañinas.
 Documentado en el README para que no se cuele después:
 borrar Prefetch (empeora el boot), limpiadores de registro (cero ganancia, riesgo real),

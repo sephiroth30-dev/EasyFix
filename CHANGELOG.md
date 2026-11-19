@@ -17,6 +17,58 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.10.0] — 2026-11-19
+
+Controladores, cancelar la instalación, y el atajo a los predeterminados de Windows.
+
+### Agregado — búsqueda e instalación de controladores
+
+Pedido del técnico. El plan tenía «instalar drivers automáticamente» en **Tier C — NO construir**
+(«driver equivocado = equipo muerto»), así que se construyó con tres niveles de riesgo en vez de
+saltearse esa barrera:
+
+| Clase | Qué incluye | Qué hace EasyFix |
+|---|---|---|
+| `Safe` | Red, video, audio, USB, Bluetooth, impresora, entrada | **Se instala solo** |
+| `NeedsConfirmation` | Almacenamiento (SCSI/RAID/HDC) y **todo lo que no se pudo clasificar** | Se informa con nombre; nunca se toca |
+| `Firmware` | Firmware, BIOS, UEFI | Nunca se ofrece. Se nombra y se manda al fabricante |
+
+- **El catálogo es el de Windows Update** (`Microsoft.Update.Session` por COM, sin NuGet nuevo) —
+  la misma fuente que «Buscar automáticamente» del Administrador de dispositivos, ya validada y
+  firmada para el hardware exacto de ese equipo. Es lo contrario de los «actualizadores de
+  drivers» que el propio `appsettings.json` lista como PUP: esos adivinan, esto usa la fuente
+  oficial. Se fuerza el catálogo público (`ServerSelection = 2`) para no consultar el WSUS
+  corporativo de un equipo de dominio.
+- **`DriverRiskClassifier` es una lista blanca, no negra**: solo las clases conocidas de bajo
+  impacto salen `Safe`; lo que no matchea —incluido un título con formato inesperado— cae en
+  `NeedsConfirmation`. La asimetría es deliberada: un falso negativo molesta, un falso positivo
+  instala el driver equivocado solo.
+- **Primer uso real de `FixBlockReason.NoNetwork`**, que existía desde v0.8.0 sin consumidores.
+
+### Corregido
+
+- **Instalar programas no se podía cancelar — nunca.** Se pasaba `CancellationToken.None`: era la
+  única operación larga de la app sin salida, y la que más tarda. Ahora usa el token real y el
+  botón «Instalar» se convierte en «Cancelar» mientras corre. Cancelar no se reporta como fallo:
+  lo ya instalado quedó instalado, y el mensaje lo dice.
+
+### Agregado — predeterminados
+
+- **Botón «Predeterminados»** que abre `ms-settings:defaultapps` con la instrucción de qué marcar.
+  **Windows no permite que un programa ponga el navegador o el lector de PDF por su cuenta**: el
+  valor va firmado con un hash no documentado y, desde febrero de 2024, el driver `UCPD.sys` impide
+  escribir esas claves aunque se tenga el hash. Las herramientas que igual lo logran necesitan
+  desactivar ese driver — justo lo que «Tier C» prohíbe. Se hace lo honesto: llevar al lugar exacto
+  en dos clics en vez de prometer una automatización que el sistema bloquea.
+
+**Probado:** 570 tests (568 + 2 omitidos), build Release 0 warnings. **El catálogo de drivers nunca
+corrió contra Windows Update real**: usa COM tardío (`dynamic`), así que ni el compilador valida
+que los miembros de la API existan — es el código menos verificable del proyecto, y está dicho en
+la remark de la clase. Toda la lógica de decisión (qué instalar, qué informar, qué no tocar) sí
+está testeada, porque vive detrás de `IDriverCatalog`.
+
+---
+
 ## [0.9.5] — 2026-11-18
 
 Rediseño de la interfaz: horizontal con barra lateral, en vez del panel vertical único donde todo
