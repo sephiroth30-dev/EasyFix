@@ -42,13 +42,19 @@ public sealed class DirectDownloadInstaller
     private readonly IFileDownloader _downloader;
     private readonly IProcessRunner _runner;
     private readonly ThresholdOptions _thresholds;
+    private readonly IInstalledProgramsReader? _installedPrograms;
     private readonly ILogger<DirectDownloadInstaller> _logger;
 
+    /// <param name="installedPrograms">
+    /// Para no reinstalar lo que ya está. <c>null</c> desactiva la comprobación — en ese caso se
+    /// instala siempre, que es el comportamiento viejo.
+    /// </param>
     public DirectDownloadInstaller(
         IFileDownloader downloader,
         IProcessRunner runner,
         ThresholdOptions thresholds,
-        ILogger<DirectDownloadInstaller> logger)
+        ILogger<DirectDownloadInstaller> logger,
+        IInstalledProgramsReader? installedPrograms = null)
     {
         ArgumentNullException.ThrowIfNull(downloader);
         ArgumentNullException.ThrowIfNull(runner);
@@ -58,7 +64,51 @@ public sealed class DirectDownloadInstaller
         _downloader = downloader;
         _runner = runner;
         _thresholds = thresholds;
+        _installedPrograms = installedPrograms;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// <c>true</c> si el programa ya figura en las claves <c>Uninstall</c> del equipo.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>El bug que esto arregla.</b> «Ya estaba instalado» lo detectaba solo el camino de
+    /// winget, leyendo su salida. Los paquetes de descarga directa —Chrome y RustDesk— no pasan
+    /// por ahí: bajaban el instalador y lo corrían <i>siempre</i>, incluso en un equipo que ya los
+    /// tenía. En un equipo de cliente eso son varios minutos y varios MB tirados, y encima el
+    /// resumen decía «instalado» como si hubiera hecho falta.</para>
+    ///
+    /// <para>Falla hacia instalar: si la lista no se puede leer, se instala igual. Reinstalar
+    /// cuesta tiempo; saltear por error dejaría al cliente sin el programa.</para>
+    /// </remarks>
+    private bool IsAlreadyInstalled(WingetPackage package)
+    {
+        if (_installedPrograms is null)
+        {
+            return false;
+        }
+
+        // El nombre a buscar es configurable porque no siempre coincide con el del catálogo: el
+        // registro puede decir «Google Chrome» para un paquete llamado de otra forma.
+        string needle = package.Direct?.DetectDisplayName ?? package.Name;
+
+        if (string.IsNullOrWhiteSpace(needle))
+        {
+            return false;
+        }
+
+        try
+        {
+            return _installedPrograms.Read().Any(p =>
+                p.DisplayName.Contains(needle, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "No se pudo comprobar si {Package} ya estaba instalado; se intenta instalar.",
+                package.Id);
+            return false;
+        }
     }
 
     /// <summary>
@@ -76,6 +126,18 @@ public sealed class DirectDownloadInstaller
         {
             return new WingetResult(package.Id, WingetOutcome.Failed,
                 $"{package.Name} no tiene configurada una descarga directa.", null);
+        }
+
+        // ANTES de bajar nada: si ya está, no se toca. Descargar e instalar encima de una
+        // instalación buena es tiempo del técnico y ancho de banda del cliente, por nada.
+        if (IsAlreadyInstalled(package))
+        {
+            _logger.LogInformation("{Package} ya estaba instalado; no se descarga.", package.Id);
+
+            return new WingetResult(package.Id, WingetOutcome.AlreadyInstalled,
+                $"{package.Name} ya estaba instalado en este equipo, así que no se volvió a " +
+                "descargar. Para pasarlo a la última versión, usá «Actualizar lo instalado».",
+                null);
         }
 
         Uri? url;

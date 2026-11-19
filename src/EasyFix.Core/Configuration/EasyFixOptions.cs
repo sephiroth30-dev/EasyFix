@@ -261,6 +261,18 @@ public sealed record DirectDownload
     public IReadOnlyList<string>? SilentArgs { get; init; }
 
     /// <summary>
+    /// Nombre a buscar en las claves <c>Uninstall</c> para saber si ya está instalado. Si falta,
+    /// se usa el nombre del paquete.
+    /// </summary>
+    /// <remarks>
+    /// Existe para los casos donde el registro usa otro nombre que el catálogo. Un valor
+    /// demasiado corto o genérico haría que EasyFix crea que algo está instalado cuando no lo
+    /// está, y lo saltee — por eso conviene el nombre completo tal como aparece en «Aplicaciones
+    /// instaladas».
+    /// </remarks>
+    public string? DetectDisplayName { get; init; }
+
+    /// <summary>
     /// Patrón alternativo, que se intenta primero. Sirve para preferir un MSI sobre un EXE.
     /// </summary>
     /// <remarks>

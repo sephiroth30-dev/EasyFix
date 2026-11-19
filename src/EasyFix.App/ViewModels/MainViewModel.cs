@@ -570,6 +570,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _currentStory;
 
+    /// <summary>Nombre del programa cuya historia se está mostrando. Es el titular de la pantalla.</summary>
+    [ObservableProperty]
+    private string? _currentStoryTitle;
+
     public int ConfiguredPackageCount => _options.WingetPackages.Count;
 
     // ---- Analizar ---------------------------------------------------------------------------
@@ -1152,6 +1156,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         IsBusy = true;
         StatusMessage = null;
+        CurrentStory = null;
+        CurrentStoryTitle = null;
         foreach (AppChoice app in selected) { app.Status = null; }
 
         var byId = selected.ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
@@ -1190,13 +1196,19 @@ public sealed partial class MainViewModel : ObservableObject
                 ? $"Instalando {p.DisplayName}…"
                 : $"{p.DisplayName}: {DescribeOutcome(p.Finished)}";
 
-            // La historia cambia con el paquete en curso y se limpia al terminarlo: dejarla
-            // puesta mientras ya se instala otro sería contar la historia equivocada.
-            CurrentStory = p.Finished is null
-                ? _options.WingetPackages
-                    .FirstOrDefault(pkg => string.Equals(pkg.Id, p.PackageId, StringComparison.OrdinalIgnoreCase))
-                    ?.Story
-                : null;
+            // La historia se reemplaza cuando ARRANCA el siguiente programa, nunca se borra al
+            // terminar el actual. Borrarla al terminar hacía que un programa rápido —o uno que
+            // ya estaba instalado— mostrara su historia por una fracción de segundo y después
+            // nada: el técnico reportó justamente eso con 7-Zip. Así cada historia queda en
+            // pantalla hasta que haya otra que contar, y la última sobrevive al final de la tanda.
+            if (p.Finished is null)
+            {
+                WingetPackage? pkg = _options.WingetPackages.FirstOrDefault(
+                    x => string.Equals(x.Id, p.PackageId, StringComparison.OrdinalIgnoreCase));
+
+                CurrentStoryTitle = p.DisplayName;
+                CurrentStory = pkg?.Story;
+            }
 
             if (!byId.TryGetValue(p.PackageId, out AppChoice? app)) { return; }
 

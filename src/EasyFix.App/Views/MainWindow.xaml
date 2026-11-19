@@ -409,88 +409,119 @@
                 </StackPanel>
             </Grid>
 
-            <!-- ===== 4. Instalar programas ===== -->
-            <Grid Margin="28,24,28,24"
+            <!-- ===== 4. Instalar programas =====
+                 Dos columnas, como las herramientas de este tipo que funcionan bien: a la
+                 izquierda el contenido protagonista (antes de instalar: qué va a pasar; durante:
+                 LA HISTORIA del programa en curso, grande y legible), a la derecha la lista con
+                 el estado de cada uno. El objetivo es que quien mira la pantalla tenga algo que
+                 leer y entienda qué está pasando, en vez de una barra muda. -->
+            <Grid Margin="36,28,36,28"
                   Visibility="{Binding CurrentScreen, Converter={StaticResource ScreenVis}, ConverterParameter=Apps}">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MaxWidth="620" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="320" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Row="0" Margin="0,4,0,10">
-                    <TextBlock Text="Instalar programas" Style="{StaticResource TitleText}" FontSize="15" />
-                    <TextBlock Style="{StaticResource MutedText}" FontSize="11.5" Margin="0,4,0,0"
-                               Text="Se descargan del repositorio oficial de Microsoft en el momento, así que siempre entra la última versión. El equipo necesita internet." />
-                </StackPanel>
+                <!-- ===== Columna izquierda: el protagonista ===== -->
+                <Grid Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">
 
-                <!-- Solo la LISTA scrollea. El progreso vive abajo, fijo: antes estaba acá
-                     adentro y con varios programas marcados había que scrollear para ver la barra
-                     — justo lo que uno mira mientras espera. La lista queda habilitada durante la
-                     instalación: marcar algo lo suma a la tanda en curso. -->
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                    <ItemsControl ItemsSource="{Binding Apps}"
-                                  ItemTemplate="{StaticResource AppRowTemplate}" />
-                </ScrollViewer>
-
-                <!-- Panel de progreso fijo. Incluye la historia del programa en curso: una
-                     instalación de varios minutos con una barra quieta se siente eterna, y deja
-                     al técnico sin nada que contarle al cliente que está mirando. -->
-                <Border Grid.Row="2" Style="{StaticResource StatusPanel}" Margin="0,12,0,0"
-                        Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding InstallProgressLabel}"
-                                       FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextBrush}"
-                                       TextWrapping="Wrap" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
-                                       Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
-                                       Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
-                        </Grid>
-
-                        <ProgressBar Style="{StaticResource ProgressBarStyle}"
-                                     Minimum="0" Maximum="100"
-                                     Value="{Binding ProgressPercent, Mode=OneWay}"
-                                     IsIndeterminate="{Binding ProgressIsIndeterminate}" />
-
-                        <TextBlock Text="{Binding ProgressStep}" Style="{StaticResource MutedText}"
-                                   FontSize="11" Margin="0,8,0,0"
-                                   Visibility="{Binding ProgressStep, Converter={StaticResource EmptyVis}}" />
-
-                        <!-- La historia del programa que se está instalando. -->
-                        <TextBlock Text="{Binding CurrentStory}" Style="{StaticResource MutedText}"
-                                   FontSize="12" Margin="0,10,0,0" LineHeight="18"
-                                   Visibility="{Binding CurrentStory, Converter={StaticResource EmptyVis}}" />
+                    <!-- Antes de instalar: qué hace esta pantalla. -->
+                    <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}">
+                        <TextBlock Text="Instalar programas"
+                                   FontFamily="{StaticResource UiFont}" FontSize="30"
+                                   FontWeight="Light" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextBrush}" />
+                        <TextBlock Style="{StaticResource MutedText}" FontSize="13.5"
+                                   Margin="0,14,0,0" MaxWidth="440" LineHeight="21"
+                                   HorizontalAlignment="Left"
+                                   Text="Se descargan del sitio oficial en el momento, así que siempre entra la última versión. Lo que ya esté instalado se saltea solo." />
+                        <TextBlock Style="{StaticResource MutedText}" FontSize="12"
+                                   Margin="0,16,0,0" Opacity="0.75"
+                                   Text="Mientras instala vas a ver de qué se trata cada programa." />
                     </StackPanel>
-                </Border>
 
-                <Border Grid.Row="3" Style="{StaticResource StatusPanel}"
+                    <!-- Durante la instalación: la historia manda. -->
+                    <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}">
+                        <TextBlock Text="{Binding CurrentStoryTitle}"
+                                   FontFamily="{StaticResource UiFont}" FontSize="34"
+                                   FontWeight="Light" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextBrush}"
+                                   Visibility="{Binding CurrentStoryTitle, Converter={StaticResource EmptyVis}}" />
+
+                        <TextBlock Text="{Binding CurrentStory}"
+                                   FontFamily="{StaticResource UiFont}" FontSize="15"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   TextWrapping="Wrap" LineHeight="26"
+                                   Margin="0,20,0,0" MaxWidth="560"
+                                   HorizontalAlignment="Left"
+                                   Visibility="{Binding CurrentStory, Converter={StaticResource EmptyVis}}" />
+
+                        <!-- Progreso: fino y discreto, debajo de la historia. No compite con
+                             ella, pero está siempre a la vista sin scrollear. -->
+                        <StackPanel Margin="0,34,0,0" MaxWidth="560" HorizontalAlignment="Left">
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding InstallProgressLabel}"
+                                           Style="{StaticResource MutedText}" FontSize="12"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource ProgressPercentText}"
+                                           Text="{Binding ProgressPercent, StringFormat={}{0:0} %}"
+                                           Visibility="{Binding ProgressIsIndeterminate, Converter={StaticResource InvertVis}}" />
+                            </Grid>
+
+                            <ProgressBar Style="{StaticResource ProgressBarStyle}"
+                                         Minimum="0" Maximum="100"
+                                         Value="{Binding ProgressPercent, Mode=OneWay}"
+                                         IsIndeterminate="{Binding ProgressIsIndeterminate}" />
+
+                            <TextBlock Text="{Binding ProgressStep}" Style="{StaticResource MutedText}"
+                                       FontSize="11" Margin="0,8,0,0" Opacity="0.8"
+                                       Visibility="{Binding ProgressStep, Converter={StaticResource EmptyVis}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
+                <!-- ===== Columna derecha: la lista, con su estado ===== -->
+                <Grid Grid.Row="0" Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="QUÉ SE VA A INSTALAR"
+                               Style="{StaticResource SectionHeader}" Margin="0,0,0,8" />
+
+                    <!-- Solo la lista scrollea: el progreso vive en la otra columna y no se va
+                         de la vista nunca. La lista sigue habilitada durante la instalación —
+                         marcar algo lo suma a la tanda en curso. -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                        <ItemsControl ItemsSource="{Binding Apps}"
+                                      ItemTemplate="{StaticResource AppRowTemplate}" />
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- Mensaje de resultado, a lo ancho de las dos columnas. -->
+                <Border Grid.Row="1" Grid.ColumnSpan="3" Style="{StaticResource StatusPanel}"
                         Visibility="{Binding StatusMessage, Converter={StaticResource EmptyVis}}">
                     <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}"
-                               FontSize="11.5" TextWrapping="Wrap" />
+                               FontSize="12" TextWrapping="Wrap" />
                 </Border>
 
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,14,0,0">
+                <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,18,0,0">
                     <Button Content="Volver" Command="{Binding BackCommand}"
                             Style="{StaticResource GhostButton}" Width="80"
                             IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
-                    <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
-                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico."
-                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
 
-                    <!-- Durante la instalación, «Instalar» se reemplaza por «Cancelar»: antes no
-                         había forma de salir de una tanda larga salvo matar la app. -->
+                    <!-- Durante la instalación, «Instalar» se reemplaza por «Cancelar». -->
                     <Button Content="Instalar" Command="{Binding RunInstallCommand}"
                             Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
                             Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
@@ -499,10 +530,6 @@
                             ToolTip="Corta la tanda. El programa que ya se esté instalando termina igual."
                             Visibility="{Binding IsBusy, Converter={StaticResource BoolVis}}" />
 
-                    <!-- Después de instalar: atajo a la pantalla de Windows donde se eligen el
-                         navegador y el lector de PDF predeterminados. Windows NO permite que un
-                         programa los cambie solo (driver UCPD + hash por usuario); esto abre el
-                         lugar exacto para hacerlo en dos clics. -->
                     <Button Content="Actualizar lo instalado" Command="{Binding UpgradeInstalledCommand}"
                             Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             ToolTip="Busca versiones nuevas de los programas que YA están en el equipo y las instala. No instala nada que no esté."
@@ -511,6 +538,11 @@
                     <Button Content="Predeterminados" Command="{Binding OpenDefaultAppsCommand}"
                             Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             ToolTip="Abre la pantalla de Windows para poner Chrome como navegador y Acrobat Reader para los PDF."
+                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+
+                    <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico."
                             Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
                 </StackPanel>
             </Grid>

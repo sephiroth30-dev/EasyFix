@@ -17,6 +17,49 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.12.1] — 2026-11-19
+
+### Corregido — Chrome se reinstalaba aunque ya estuviera
+
+Reporte real. La detección de «ya estaba instalado» existía **solo en el camino de winget**,
+leyendo su salida. Chrome y RustDesk no pasan por ahí: usan descarga directa del sitio oficial,
+y ese camino bajaba el instalador y lo corría **siempre**, incluso en un equipo que ya los
+tenía. En la casa de un cliente son varios minutos y varios MB tirados — y encima el resumen
+decía «instalado» como si hubiera hecho falta.
+
+Ahora la descarga directa consulta las claves `Uninstall` **antes de bajar nada** y reporta «ya
+estaba instalado». Falla hacia instalar: si la lista no se puede leer, instala igual —
+reinstalar cuesta tiempo, saltear por error dejaría al cliente sin el programa.
+
+### Corregido — la historia aparecía y desaparecía en un parpadeo
+
+Reporte real: «7-Zip no me contó nada». Tenía historia, pero se borraba apenas el programa
+terminaba: uno rápido —o uno que ya estaba instalado— la mostraba una fracción de segundo.
+Ahora cada historia **se reemplaza recién cuando arranca la siguiente**, nunca se borra al
+terminar, y la última queda en pantalla al final de la tanda.
+
+### Cambiado — la historia es la protagonista
+
+La pantalla de instalación pasó a dos columnas, con la estructura que usan las herramientas del
+rubro que funcionan bien:
+
+- **Izquierda, el protagonista.** Antes de instalar: qué va a pasar, en tipografía grande y
+  liviana. Durante: el **nombre del programa a 34 px** y su historia a 15 px con interlineado
+  generoso, en un ancho de lectura cómodo. El progreso va debajo, fino y discreto — está siempre
+  a la vista pero no compite con el texto.
+- **Derecha, la lista** con el estado de cada programa.
+- Más aire en todo: márgenes de 36 px, 44 px entre columnas.
+
+### Agregado — dos tests para que esto no se degrade
+
+`TodoProgramaTieneSuHistoria` falla si se agrega un programa sin historia (es facilísimo
+olvidarla), y `LasHistoriasTienenLargoUtil` exige entre 120 y 600 caracteres: más corta no llena
+la espera, más larga no se lee.
+
+**Probado:** 585 tests (583 + 2 omitidos), build Release 0 warnings. Sin verificar en Windows.
+
+---
+
 ## [0.12.0] — 2026-11-19
 
 ### Corregido — el mensaje mandaba a marcar una casilla invisible

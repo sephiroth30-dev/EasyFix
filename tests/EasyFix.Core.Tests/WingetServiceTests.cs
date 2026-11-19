@@ -611,6 +611,42 @@ public sealed class WingetServiceTests
     }
 
     [Fact]
+    public void TodoProgramaTieneSuHistoria()
+    {
+        // La historia es lo que ve el cliente mientras espera. Un programa sin historia deja la
+        // pantalla vacía justo cuando hay que mirarla, y es facilísimo olvidarla al agregar uno
+        // nuevo — por eso lo verifica un test y no la buena memoria.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        var sinHistoria = options.WingetPackages
+            .Where(p => string.IsNullOrWhiteSpace(p.Story))
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.True(
+            sinHistoria.Count == 0,
+            $"Estos programas no tienen 'story' en appsettings.json: {string.Join(", ", sinHistoria)}. " +
+            "Agregale una (un hecho real y por qué se eligió ese programa) antes de publicar.");
+    }
+
+    [Fact]
+    public void LasHistoriasTienenLargoUtil()
+    {
+        // Demasiado corta no ocupa el tiempo de espera; demasiado larga no se lee. El rango sale
+        // de que la pantalla le da ~560 px de ancho y varias líneas de alto.
+        EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
+
+        foreach (WingetPackage package in options.WingetPackages.Where(p => p.Story is not null))
+        {
+            int length = package.Story!.Length;
+
+            Assert.True(
+                length is >= 120 and <= 600,
+                $"La historia de {package.Name} tiene {length} caracteres; se esperan entre 120 y 600.");
+        }
+    }
+
+    [Fact]
     public void NoHayIdsDuplicadosEnLaConfiguracion()
     {
         EasyFixOptions options = OptionsLoader.Parse(File.ReadAllText(TestPaths.RealAppSettings()));
