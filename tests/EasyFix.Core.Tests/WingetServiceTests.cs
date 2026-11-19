@@ -96,6 +96,9 @@ public sealed class WingetServiceTests
 
         public Task<Uri?> ResolveGitHubLatestAsync(string repository, string assetPattern, CancellationToken ct) =>
             throw new InvalidOperationException("No debería resolverse nada en estos tests.");
+
+        public Task<string?> FetchTextAsync(Uri url, CancellationToken ct) =>
+            throw new InvalidOperationException("No debería consultarse ningún origen en estos tests.");
     }
 
     private static WingetService Build(

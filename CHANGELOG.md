@@ -17,6 +17,63 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.17.0] — 2026-11-19
+
+Reporte: «Adobe volvió a dar el error, dice que winget no está disponible».
+
+### Cambiado — ningún programa del catálogo depende ya de winget
+
+Adobe Reader, VLC y AnyDesk eran los tres que quedaban. Ahora los **diez** se bajan de su origen
+oficial, y lo verifica un test sobre la configuración real: agregar un programa sin origen propio
+rompe el build, no la visita al cliente.
+
+Ninguno de los tres se podía resolver con lo que ya había —no están en GitHub y sus URLs llevan la
+versión adentro—, así que se agregó una tercera forma de resolver el instalador: **consultar el
+origen en el momento** y sacar la versión de ahí.
+
+| Programa | Origen | Verificado |
+|---|---|---|
+| Adobe Reader | API de Adobe → `ardownload3.adobe.com` | versión 26.003.22110, archivo de 798 MB |
+| VLC | listado de `get.videolan.org/vlc/last/win64/` | `vlc-3.0.24-win64.msi`, 63 MB |
+| AnyDesk | `download.anydesk.com/AnyDesk.exe` | 200 |
+
+Las tres URLs se contrastaron además con el manifiesto de winget en `microsoft/winget-pkgs`, que es
+de donde winget las bajaría; los argumentos de instalación silenciosa salen de ahí, no de memoria.
+
+**La versión no se clava en la configuración.** Funcionaría el día que se escribe y después se
+pudriría sola: Adobe publica una versión por mes, y la vieja termina devolviendo 404 — o, peor,
+sigue descargándose e instala un Reader con vulnerabilidades conocidas.
+
+**Falla cerrado.** Si el origen cambia de formato y el patrón deja de coincidir, no se inventa
+ninguna URL: el resultado es «no se encontró un instalador», nombrando el campo que hay que
+revisar.
+
+### Corregido
+
+- **Las descargas grandes se cortaban a los 10 minutos.** El límite de `HttpClient` cubre toda la
+  operación, incluido leer el cuerpo. Adobe Reader pesa unos 800 MB: por debajo de ~11 Mbps se
+  cancelaba sola, y en pantalla eso se veía como una cancelación sin motivo. Ahora son 40 minutos
+  — el botón de cancelar sigue andando y los MB se informan cada segundo, así que una conexión
+  muerta se nota mucho antes.
+- **AnyDesk necesita que se le diga la carpeta de destino**, y escribirla a mano rompe en un Windows
+  en otro idioma o instalado en otra unidad. Los argumentos ahora expanden variables de entorno.
+
+### Agregado — cuatro guardas sobre la configuración
+
+Errores que no dan la cara hasta estar en la casa de un cliente: un `indexUrl` sin su patrón
+(la resolución se saltea la rama en silencio), un origen en HTTP (de ahí sale un ejecutable que se
+corre como administrador), una plantilla con un token que nadie reemplaza, y un programa sin origen
+propio.
+
+**Probado:** 619 pruebas (599 Core + 20 App), build Release 0 warnings. Los dos patrones nuevos se
+corrieron contra la respuesta real de Adobe y el listado real de VideoLAN.
+
+**SIN VERIFICAR en Windows:** que los instaladores corran callados con los argumentos del
+manifiesto. Son los que usa winget, pero acá los ejecuta EasyFix directo y eso ningún build lo
+valida.
+
+---
+
 ## [0.16.0] — 2026-11-19
 
 Reporte: «no instaló nada porque falla el winget». Esta versión ataca esa dependencia de raíz.

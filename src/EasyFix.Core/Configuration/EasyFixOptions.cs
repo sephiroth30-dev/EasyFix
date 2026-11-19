@@ -278,6 +278,35 @@ public sealed record DirectDownload
 
     public string? AssetPattern { get; init; }
 
+    /// <summary>
+    /// Página o respuesta JSON donde está escrita la última versión. Se consulta en el momento.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Para qué.</b> No todo origen oficial tiene una URL fija ni vive en GitHub. VLC
+    /// publica un listado de directorio; Adobe pone el número de versión en la ruta del archivo.
+    /// En los dos casos la alternativa sería clavar una versión en la configuración, que envejece
+    /// sola: a los meses EasyFix instalaría un Reader viejo —con sus vulnerabilidades— o una URL
+    /// que ya devuelve 404.</para>
+    ///
+    /// <para>Se usa junto con <see cref="MatchPattern"/>, y opcionalmente
+    /// <see cref="UrlTemplate"/>.</para>
+    /// </remarks>
+    public string? IndexUrl { get; init; }
+
+    /// <summary>
+    /// Expresión regular que se busca en <see cref="IndexUrl"/>. Si tiene grupo de captura, se usa
+    /// el grupo 1; si no, el match completo.
+    /// </summary>
+    public string? MatchPattern { get; init; }
+
+    /// <summary>
+    /// Plantilla de la URL final. <c>{v}</c> es lo capturado tal cual; <c>{vdigits}</c> es lo
+    /// capturado sin puntos (Adobe escribe <c>26.003.22110</c> pero la ruta dice
+    /// <c>2600322110</c>). Si falta, lo capturado se trata como un nombre de archivo relativo a
+    /// <see cref="IndexUrl"/>, que es el caso de un listado de directorio.
+    /// </summary>
+    public string? UrlTemplate { get; init; }
+
     public IReadOnlyList<string>? SilentArgs { get; init; }
 
     /// <summary>

@@ -832,14 +832,17 @@ install --id <ID> --exact --source winget --silent --disable-interactivity
 - **En serie, nunca en paralelo** — dos instaladores de Windows se pelean por el mutex de Windows
   Installer: uno falla, o peor, queda a medias. Verificado por test (`MaxConcurrent == 1`).
 
-| Programa | ID | Por defecto |
-|---|---|:-:|
-| Google Chrome | `Google.Chrome` | ✓ |
-| Adobe Acrobat Reader | `Adobe.Acrobat.Reader.64-bit` | ✓ |
-| 7-Zip | `7zip.7zip` | ✓ |
-| Visual C++ Redist x64 / x86 | `Microsoft.VCRedist.2015+.x64` / `.x86` | ✓ |
-| RustDesk | `RustDesk.RustDesk` | ✓ |
-| VLC · Notepad++ · Firefox · AnyDesk | | |
+| Programa | ID | Por defecto | Origen |
+|---|---|:-:|---|
+| Google Chrome | `Google.Chrome` | ✓ | URL fija |
+| Adobe Acrobat Reader | `Adobe.Acrobat.Reader.64-bit` | ✓ | índice + plantilla |
+| 7-Zip | `7zip.7zip` | ✓ | GitHub |
+| Visual C++ Redist x64 / x86 | `Microsoft.VCRedist.2015+.x64` / `.x86` | ✓ | URL fija |
+| RustDesk | `RustDesk.RustDesk` | ✓ | GitHub |
+| VLC | `VideoLAN.VLC` | | índice |
+| Notepad++ | `Notepad++.Notepad++` | | GitHub |
+| Firefox | `Mozilla.Firefox` | | URL fija |
+| AnyDesk | `AnyDesk.AnyDesk` | | URL fija |
 
 7-Zip en lugar de WinRAR porque WinRAR es shareware con nag eterno. RustDesk en lugar de AnyDesk como
 opción por defecto porque es libre y se puede autohospedar; AnyDesk queda desmarcado por si el cliente
@@ -873,10 +876,48 @@ Los códigos de salida salen de la documentación y están **pendientes de verif
 que eso no sea grave: un código no reconocido cae en `Failed` mostrando el valor en crudo, así que el
 peor caso es un fallo honesto y diagnosticable, nunca un éxito falso.
 
-### Pendiente
+### Ningún programa depende de winget
 
-Si winget falta (Win10 anterior a 1809), hoy se informa y nada más. Falta el bootstrap del
-`Microsoft.DesktopAppInstaller` msixbundle.
+**Los diez se instalan sin winget**, y lo verifica un test sobre el `appsettings.json` real
+(`NingunProgramaDelCatalogoDependeDeWinget`). Esto nació de un reporte repetido: «no instaló nada
+porque falla el winget». winget sigue estando —y si falta, se hace su bootstrap— pero ya no es el
+único camino para ningún programa del catálogo.
+
+`DirectDownloadInstaller` resuelve la URL del instalador de tres formas, en este orden:
+
+| Forma | Configuración | Quién la usa |
+|---|---|---|
+| Release de GitHub | `githubRepository` + `assetPattern` | 7-Zip, RustDesk, Notepad++ |
+| URL fija | `url` | Chrome, Visual C++ x64/x86, Firefox, AnyDesk |
+| Índice consultado al vuelo | `indexUrl` + `matchPattern` (+ `urlTemplate`) | Adobe Reader, VLC |
+
+La tercera existe porque Adobe y VideoLAN no tienen URL fija ni viven en GitHub: VLC publica un
+listado de directorio, y Adobe escribe el número de versión dentro de la ruta del archivo. Se
+consulta el origen en el momento y se saca la versión con una expresión regular — `{v}` es lo
+capturado, `{vdigits}` lo capturado sin puntos, porque Adobe dice `26.003.22110` y su carpeta se
+llama `2600322110`.
+
+**Por qué no se clava la versión en la configuración.** Funciona el día que se escribe y después se
+pudre sola: Adobe publica una versión por mes, y la vieja termina devolviendo 404 — o, peor, sigue
+descargándose e instala un Reader con vulnerabilidades conocidas.
+
+**Falla cerrado.** Si el patrón deja de coincidir porque el origen cambió de formato, no se inventa
+ninguna URL: el resultado es «no se encontró un instalador», nombrando el campo del
+`appsettings.json` que hay que revisar.
+
+Cuatro guardas sobre la configuración real impiden los errores que no dan la cara hasta estar en la
+casa de un cliente: que todo `indexUrl` tenga su `matchPattern`, que todo origen sea HTTPS, que las
+plantillas no tengan tokens que nadie reemplaza, y que ningún programa quede sin `direct`.
+
+### Verificación de los orígenes
+
+Cada URL se comprobó con una petición real antes de configurarla, y para Adobe, VLC y AnyDesk se
+contrastó además contra el manifiesto de winget en `microsoft/winget-pkgs`, que es de dónde los
+bajaría winget. Los argumentos silenciosos salen de ahí mismo, no de memoria.
+
+**Adobe Reader pesa unos 800 MB.** Es el instalador oficial x64 y es el mismo que baja winget; no
+hay una versión liviana. Por eso el límite de la descarga es de 40 minutos: con los 10 que había
+antes, cualquier conexión por debajo de ~11 Mbps se cortaba a la mitad.
 
 ## Seguridad y reversibilidad
 **Journal por corrida** en `%ProgramData%\EasyFix\runs\<runId>.json`:

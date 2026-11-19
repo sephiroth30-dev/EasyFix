@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using EasyFix.Core.Abstractions;
 using EasyFix.Core.Configuration;
 using EasyFix.Core.Network;
@@ -21,6 +22,16 @@ public interface IFileDownloader
     /// Fragmento que tiene que contener el nombre del asset, p. ej. <c>x86_64.exe</c>.
     /// </param>
     Task<Uri?> ResolveGitHubLatestAsync(string repository, string assetPattern, CancellationToken ct);
+
+    /// <summary>
+    /// Trae el contenido de una URL como texto, o <c>null</c> si no se pudo.
+    /// </summary>
+    /// <remarks>
+    /// Para los orígenes que no son GitHub y publican la última versión en un listado de
+    /// directorio o en una respuesta JSON. Devuelve el texto crudo a propósito: quién interpreta
+    /// ese texto es <see cref="DirectDownloadInstaller"/>, que así se puede probar sin red.
+    /// </remarks>
+    Task<string?> FetchTextAsync(Uri url, CancellationToken ct);
 }
 
 /// <summary>
@@ -306,7 +317,96 @@ public sealed class DirectDownloadInstaller
                 .ConfigureAwait(false);
         }
 
+        if (direct.IndexUrl is { Length: > 0 } index &&
+            direct.MatchPattern is { Length: > 0 } pattern &&
+            Uri.TryCreate(index, UriKind.Absolute, out Uri? indexUri))
+        {
+            return await ResolveFromIndexAsync(direct, indexUri, pattern, progress, ct)
+                .ConfigureAwait(false);
+        }
+
         return Uri.TryCreate(direct.Url, UriKind.Absolute, out Uri? parsed) ? parsed : null;
+    }
+
+    /// <summary>
+    /// Lee la última versión del origen oficial y arma la URL del instalador.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Qué fallo arregla.</b> Adobe Reader, VLC y AnyDesk eran los últimos tres que solo
+    /// se podían instalar por winget, y en un equipo sin winget el técnico veía «winget no está
+    /// disponible» y se quedaba sin el programa. Ninguno de los tres se podía resolver con lo que
+    /// ya había: no están en GitHub, y sus URLs llevan la versión adentro.</para>
+    ///
+    /// <para><b>Por qué se resuelve en el momento y no se clava la versión.</b> Una URL con la
+    /// versión escrita en la configuración funciona el día que se escribe y después se pudre sola:
+    /// Adobe publica una versión por mes, y la vieja termina devolviendo 404 — o peor, sigue
+    /// funcionando e instala un Reader con vulnerabilidades conocidas.</para>
+    /// </remarks>
+    private async Task<Uri?> ResolveFromIndexAsync(
+        DirectDownload direct,
+        Uri index,
+        string pattern,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
+        progress?.Report($"Buscando la última versión en {index.Host}…");
+
+        string? text = await _downloader.FetchTextAsync(index, ct).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            _logger.LogWarning("{Index} no devolvió contenido donde buscar la versión.", index);
+            return null;
+        }
+
+        Match match;
+        try
+        {
+            // El timeout es por las dudas: los patrones salen de nuestro appsettings.json, pero un
+            // patrón mal escrito colgaría la instalación entera sin dar ninguna pista.
+            match = Regex.Match(
+                text, pattern,
+                RegexOptions.IgnoreCase | RegexOptions.Singleline,
+                TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex) when (ex is RegexMatchTimeoutException or ArgumentException)
+        {
+            _logger.LogError(ex, "El patrón '{Pattern}' no se pudo aplicar a {Index}.", pattern, index);
+            return null;
+        }
+
+        if (!match.Success)
+        {
+            _logger.LogWarning(
+                "En {Index} no hay nada que coincida con '{Pattern}'. Puede haber cambiado el " +
+                "formato del origen: revisá 'matchPattern' en appsettings.json.", index, pattern);
+            return null;
+        }
+
+        string captured = match.Groups.Count > 1 && match.Groups[1].Success
+            ? match.Groups[1].Value
+            : match.Value;
+
+        if (string.IsNullOrWhiteSpace(captured))
+        {
+            return null;
+        }
+
+        if (direct.UrlTemplate is { Length: > 0 } template)
+        {
+            string built = template
+                .Replace("{vdigits}", new string(captured.Where(char.IsDigit).ToArray()), StringComparison.Ordinal)
+                .Replace("{v}", captured, StringComparison.Ordinal);
+
+            _logger.LogInformation("{Index}: versión {Version}; se baja {Url}.", index, captured, built);
+
+            return Uri.TryCreate(built, UriKind.Absolute, out Uri? templated) ? templated : null;
+        }
+
+        // Sin plantilla, lo capturado es el nombre de archivo dentro del listado.
+        _logger.LogInformation("{Index}: se eligió el archivo {File}.", index, captured);
+
+        return Uri.TryCreate(index, captured, out Uri? relative) ? relative : null;
     }
 
     /// <summary>
@@ -326,7 +426,13 @@ public sealed class DirectDownloadInstaller
     {
         if (!DirectDownload.IsMsi(installerPath))
         {
-            return (installerPath, direct.SilentArgs ?? Array.Empty<string>());
+            // AnyDesk necesita que se le diga la carpeta de destino, y escribir «C:\Program Files
+            // (x86)» a mano rompe en Windows en otro idioma o instalado en otra unidad.
+            IReadOnlyList<string> args = (direct.SilentArgs ?? Array.Empty<string>())
+                .Select(Environment.ExpandEnvironmentVariables)
+                .ToList();
+
+            return (installerPath, args);
         }
 
         var arguments = new List<string> { "/i", installerPath, "/qn", "/norestart" };
@@ -406,7 +512,12 @@ public sealed class HttpFileDownloader : IFileDownloader, IDisposable
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
 
-        _http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        // 40 minutos, no 10. El límite de HttpClient cubre TODA la operación, incluido leer el
+        // cuerpo: con 10 minutos, el instalador de Adobe Reader —que hoy pesa unos 800 MB— se
+        // cortaba a la mitad en cualquier conexión por debajo de ~11 Mbps, y el técnico veía una
+        // cancelación sin motivo aparente. El botón de cancelar sigue funcionando, y la descarga
+        // informa los MB cada segundo, así que una conexión muerta se nota mucho antes.
+        _http = new HttpClient { Timeout = TimeSpan.FromMinutes(40) };
 
         // GitHub rechaza las peticiones sin User-Agent.
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("EasyFix/1.0");
@@ -527,6 +638,40 @@ public sealed class HttpFileDownloader : IFileDownloader, IDisposable
             "{Repo}: última versión {Tag}, asset {Asset}.", repository, release.TagName, match.Name);
 
         return Uri.TryCreate(match.DownloadUrl, UriKind.Absolute, out Uri? url) ? url : null;
+    }
+
+    public async Task<string?> FetchTextAsync(Uri url, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+
+        if (url.Scheme != Uri.UriSchemeHttps)
+        {
+            // Lo que se lee de acá decide qué ejecutable se baja y se corre. Por HTTP sin cifrar
+            // cualquiera en el camino podría apuntarlo a otro lado.
+            throw new InvalidOperationException(
+                $"Solo se consultan orígenes por HTTPS. La URL '{url}' usa {url.Scheme}.");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+        // El Accept de la instancia dice «application/vnd.github+json», que es lo que quiere la API
+        // de releases. Acá se consultan listados HTML y JSON de otros orígenes: dejarlo puesto hace
+        // que alguno conteste 406 y la instalación falle por una cabecera, no por la red.
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.ParseAdd("application/json, text/html, */*");
+
+        using HttpResponseMessage response = await _http
+            .SendAsync(request, HttpCompletionOption.ResponseContentRead, ct)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "{Url} respondió {Status} al buscar la última versión.", url, (int)response.StatusCode);
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
     }
 
     public void Dispose() => _http.Dispose();

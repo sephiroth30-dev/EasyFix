@@ -55,6 +55,9 @@ public sealed class WingetBootstrapperTests
             Assert.Equal("microsoft/winget-cli", repository);
             return Task.FromResult(LatestUrl);
         }
+
+        public Task<string?> FetchTextAsync(Uri url, CancellationToken ct) =>
+            throw new InvalidOperationException("El bootstrap de winget sale de GitHub, no de un índice.");
     }
 
     private sealed class FakeRunner : IProcessRunner

@@ -76,6 +76,9 @@ internal static class Harness
 
         public Task<Uri?> ResolveGitHubLatestAsync(string repository, string assetPattern, CancellationToken ct) =>
             Task.FromResult<Uri?>(new Uri("https://example.invalid/pkg.msi"));
+
+        public Task<string?> FetchTextAsync(Uri url, CancellationToken ct) =>
+            Task.FromResult<string?>("vlc-9.9.9-win64.msi");
     }
 
     private sealed class FakeConnectivity : IConnectivityCheck

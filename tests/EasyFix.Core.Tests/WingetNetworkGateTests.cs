@@ -49,6 +49,9 @@ public sealed class WingetNetworkGateTests
 
         public Task<Uri?> ResolveGitHubLatestAsync(string repository, string assetPattern, CancellationToken ct) =>
             throw new InvalidOperationException("No se debería haber consultado GitHub sin internet.");
+
+        public Task<string?> FetchTextAsync(Uri url, CancellationToken ct) =>
+            throw new InvalidOperationException("No se debería haber consultado ningún origen sin internet.");
     }
 
     private static WingetService Build(IConnectivityCheck connectivity)
