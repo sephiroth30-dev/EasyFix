@@ -223,7 +223,10 @@ En orden de valor, no de dependencia:
    políticas locales.
 6. **Wizard de perfil**, los tres niveles.
 7. **Reanudación tras reinicio** (`RunOnce --resume`).
-8. **Bootstrap de winget** si falta (Win10 anterior a 1809).
+8. ~~Bootstrap de winget si falta~~ — **hecho en v0.9.3**: `WingetBootstrapper` descarga el
+   instalador oficial + VCLibs e instala con `Add-AppxPackage`, un intento por corrida. Queda sin
+   cubrir el caso de equipos que además necesitan `Microsoft.UI.Xaml` (sin origen oficial estable
+   para bajarlo suelto) — el error lo dice en vez de adivinar una segunda descarga.
 
 ### Errores corregidos que conviene no repetir
 

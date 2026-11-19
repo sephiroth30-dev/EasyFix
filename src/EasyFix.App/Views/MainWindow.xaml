@@ -409,7 +409,7 @@
                             IsEnabled="{Binding IsBusy, Converter={StaticResource Invert}}" />
                     <Button Content="Diagnosticar winget" Command="{Binding DiagnoseWingetCommand}"
                             Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                            ToolTip="Muestra dónde está winget, su versión y si puede leer su catálogo." />
+                            ToolTip="Si falta winget, «Instalar» ya intenta ponerlo solo. Usá esto si después de instalar algo sigue sin andar y querés ver el detalle técnico." />
                     <Button Content="Instalar" Command="{Binding RunInstallCommand}"
                             Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" />
                 </StackPanel>

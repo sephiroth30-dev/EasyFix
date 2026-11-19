@@ -1142,6 +1142,13 @@ public sealed partial class MainViewModel : ObservableObject
     /// <remarks>
     /// Existe por el fallo más difícil de diagnosticar del módulo: winget corriendo elevado no ve su
     /// propio catálogo, porque se instala por usuario. Sin este botón, el técnico solo veía «Falló».
+    /// <para>
+    /// Desde que <see cref="WingetService"/> intenta instalar winget solo cuando falta (ver
+    /// <c>IWingetBootstrapper</c>), este botón ya no es el primer paso — «Instalar» ya lo intenta
+    /// implícito. Queda para el caso en que el bootstrap automático no alcanzó (ej. falta
+    /// Microsoft.UI.Xaml, que no se baja de un origen oficial estable) y hace falta el detalle
+    /// técnico para resolverlo a mano.
+    /// </para>
     /// </remarks>
     private async Task DiagnoseWingetAsync()
     {

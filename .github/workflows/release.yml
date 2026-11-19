@@ -52,9 +52,21 @@ jobs:
         shell: bash
         run: ./scripts/extract-changelog.sh "$VERSION" > release-notes.md
 
+      - name: Copiar el .exe con el nombre versionado
+        # El título del Release ya decía "EasyFix v0.9.2", pero el ARCHIVO descargado siempre se
+        # llamaba igual (EasyFix.exe) sin importar la versión. En un USB con varias descargas, o
+        # simplemente al re-descargar después de una actualización, no hay forma de saber cuál es
+        # cuál sin abrir Propiedades. Se sube una copia con el nombre versionado y se mantiene
+        # "EasyFix.exe" sin versión para que el link estable
+        # (.../releases/latest/download/EasyFix.exe) siga funcionando igual.
+        shell: bash
+        run: cp publish/EasyFix.exe "publish/EasyFix-v$VERSION.exe"
+
       - name: Crear Release
         uses: softprops/action-gh-release@v2
         with:
           name: EasyFix v${{ env.VERSION }}
           body_path: release-notes.md
-          files: publish/EasyFix.exe
+          files: |
+            publish/EasyFix-v${{ env.VERSION }}.exe
+            publish/EasyFix.exe

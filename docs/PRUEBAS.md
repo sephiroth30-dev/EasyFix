@@ -151,6 +151,32 @@ log dice `internet = CaptivePortal`.
 
 ---
 
+## Nivel 1.8 — Bootstrap de winget · MODIFICA el equipo (instala un paquete Appx)
+
+Solo aplica a un equipo donde «Diagnosticar winget» diga que no lo encuentra. Si no tenés ninguno a
+mano, probar en una VM Windows 11 recién instalada SIN haber abierto nunca la Microsoft Store (así
+nunca se aprovisiona el paquete por usuario) — es el escenario real que reportó el primer uso.
+
+- [ ] Con winget ausente, apretar «Instalar» en la pantalla de Apps (con al menos un programa
+      marcado). **No debería bloquearse ni pedir nada**: tiene que descargar e instalar winget
+      solo, y seguir con la instalación del programa en la misma corrida.
+- [ ] Mirar el log: debe aparecer `Bootstrap de winget: True. winget se instaló...` y, antes de
+      declarar éxito, tiene que haber vuelto a buscar `winget.exe` — no alcanza con que
+      `Add-AppxPackage` no tirara error.
+- [ ] Si falla (p. ej. falta Microsoft.UI.Xaml), el resultado del paquete tiene que decir
+      explícitamente que se intentó instalar winget y por qué no se pudo — nunca «WingetMissing»
+      a secas como si no se hubiera intentado nada.
+- [ ] Repetir «Instalar» con un SEGUNDO programa en la misma corrida (o reabrir la app si la
+      primera corrida ya terminó): si el bootstrap anterior funcionó, winget tiene que resolverse
+      normal sin volver a intentar el bootstrap.
+- [ ] Verificar con `winget --version` desde una consola aparte que efectivamente quedó instalado
+      para ESTE usuario (no solo para la sesión elevada de EasyFix).
+
+### Qué capturar
+Log completo + salida de `winget --version` manual + captura de la pantalla de Apps al terminar.
+
+---
+
 ## Nivel 2 — Instalar programas · MODIFICA el equipo
 
 Instala software. En un equipo propio primero.

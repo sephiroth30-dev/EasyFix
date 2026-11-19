@@ -39,11 +39,19 @@ public sealed class WingetService
     private readonly IWingetLocator _locator;
     private readonly DirectDownloadInstaller _directInstaller;
     private readonly IConnectivityCheck _connectivity;
+    private readonly IWingetBootstrapper _bootstrapper;
     private readonly ThresholdOptions _thresholds;
     private readonly ILogger<WingetService> _logger;
 
     /// <summary>Se intenta reparar las fuentes una sola vez por corrida.</summary>
     private bool _sourceRepairAttempted;
+
+    /// <summary>
+    /// Se intenta instalar winget una sola vez por corrida, igual que la reparación de fuentes: si
+    /// el primer intento no sirvió, lanzarlo de nuevo por cada paquete solo repite el mismo fallo
+    /// más lento.
+    /// </summary>
+    private bool _bootstrapAttempted;
 
     /// <summary>
     /// El catálogo quedó confirmado como ilegible: la reparación se hizo y no sirvió.
@@ -65,6 +73,7 @@ public sealed class WingetService
         IWingetLocator locator,
         DirectDownloadInstaller directInstaller,
         IConnectivityCheck connectivity,
+        IWingetBootstrapper bootstrapper,
         ThresholdOptions thresholds,
         ILogger<WingetService> logger)
     {
@@ -72,6 +81,7 @@ public sealed class WingetService
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(directInstaller);
         ArgumentNullException.ThrowIfNull(connectivity);
+        ArgumentNullException.ThrowIfNull(bootstrapper);
         ArgumentNullException.ThrowIfNull(thresholds);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -79,6 +89,7 @@ public sealed class WingetService
         _locator = locator;
         _directInstaller = directInstaller;
         _connectivity = connectivity;
+        _bootstrapper = bootstrapper;
         _thresholds = thresholds;
         _logger = logger;
     }
@@ -116,6 +127,7 @@ public sealed class WingetService
         var results = new List<WingetResult>(packages.Count);
 
         _sourceRepairAttempted = false;
+        _bootstrapAttempted = false;
         _catalogUnusable = null;
         _errorTable = null;
 
@@ -180,6 +192,42 @@ public sealed class WingetService
                 // instalaciones siguientes fallaron con "Acceso denegado" contra una ruta que ya no
                 // existía.
                 string? winget = _locator.Find();
+
+                if (winget is null && !_bootstrapAttempted)
+                {
+                    // Un solo intento por corrida: si el bootstrap falla, repetirlo por cada
+                    // paquete siguiente solo volvería a bajar los mismos archivos para el mismo
+                    // resultado. El técnico pedía justamente esto — "que lo instale implícito" en
+                    // vez de bloquear con un botón de solo diagnóstico.
+                    _bootstrapAttempted = true;
+
+                    progress?.Report(new InstallProgress(
+                        package.Id, package.Name, i + 1, packages.Count,
+                        Finished: null));
+
+                    WingetBootstrapResult bootstrap = await _bootstrapper
+                        .EnsureAvailableAsync(new Progress<string>(_ => { }), ct)
+                        .ConfigureAwait(false);
+
+                    _logger.LogInformation(
+                        "Bootstrap de winget: {Success}. {Detail}", bootstrap.Success, bootstrap.Detail);
+
+                    winget = _locator.Find();
+
+                    if (winget is null)
+                    {
+                        result = WingetResultParser.Missing(package.Id) with
+                        {
+                            Detail = $"{WingetResultParser.Missing(package.Id).Detail} Se intentó " +
+                                     $"instalarlo automáticamente y no se pudo: {bootstrap.Detail}",
+                        };
+
+                        progress?.Report(new InstallProgress(
+                            package.Id, package.Name, i + 1, packages.Count, result));
+                        results.Add(result);
+                        continue;
+                    }
+                }
 
                 if (winget is null)
                 {

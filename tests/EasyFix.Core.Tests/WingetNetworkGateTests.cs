@@ -62,6 +62,9 @@ public sealed class WingetNetworkGateTests
                 new ForbiddenDownloader(), runner, new ThresholdOptions(),
                 NullLogger<DirectDownloadInstaller>.Instance),
             connectivity,
+            // winget ya está (FakeLocator siempre lo encuentra): el bootstrap no debería
+            // dispararse nunca en estos tests, sin internet o con ella.
+            FakeWingetBootstrapper.Forbidden(),
             new ThresholdOptions(),
             NullLogger<WingetService>.Instance);
     }

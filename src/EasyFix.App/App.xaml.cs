@@ -95,6 +95,7 @@ public partial class App : Application
         services.AddSingleton<SystemProbe>();
         services.AddSingleton<IWingetLocator, WingetLocator>();
         services.AddSingleton<IFileDownloader, HttpFileDownloader>();
+        services.AddSingleton<IWingetBootstrapper, WingetBootstrapper>();
         services.AddSingleton<DirectDownloadInstaller>();
 
         // La compuerta de red. Sin esto, un equipo sin internet producía tres diagnósticos falsos

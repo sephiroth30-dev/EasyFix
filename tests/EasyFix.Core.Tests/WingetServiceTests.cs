@@ -75,6 +75,16 @@ public sealed class WingetServiceTests
         public string? Find() => _path;
     }
 
+    /// <summary>
+    /// Para los tests de bootstrap: empieza sin winget y permite simular que apareció después de
+    /// instalarlo, igual que pasaría en un equipo real tras correr <c>Add-AppxPackage</c>.
+    /// </summary>
+    private sealed class MutableLocator : IWingetLocator
+    {
+        public string? Path { get; set; }
+        public string? Find() => Path;
+    }
+
     private static WingetPackage Package(string id, string name) =>
         new() { Id = id, Name = name };
 
@@ -91,15 +101,20 @@ public sealed class WingetServiceTests
     private static WingetService Build(
         IProcessRunner runner,
         string? wingetPath = WingetPath,
-        IConnectivityCheck? connectivity = null) =>
+        IConnectivityCheck? connectivity = null,
+        IWingetLocator? locator = null,
+        IWingetBootstrapper? bootstrapper = null) =>
         new(runner,
-            new FakeLocator(wingetPath),
+            locator ?? new FakeLocator(wingetPath),
             new DirectDownloadInstaller(
                 new UnusedDownloader(), runner, new ThresholdOptions(),
                 NullLogger<DirectDownloadInstaller>.Instance),
             // Por defecto con internet: estos tests ejercitan la vía de winget, y la compuerta de red
             // tiene sus propios tests más abajo.
             connectivity ?? FakeConnectivityCheck.Online(),
+            // winget ya está en casi todos estos tests: el bootstrap nunca debería dispararse, y
+            // Forbidden() lo deja en evidencia si alguna vez pasa.
+            bootstrapper ?? FakeWingetBootstrapper.Forbidden(),
             new ThresholdOptions(),
             NullLogger<WingetService>.Instance);
 
@@ -262,16 +277,19 @@ public sealed class WingetServiceTests
     // ---- winget ausente e IDs inválidos -----------------------------------------------------
 
     [Fact]
-    public async Task SinWinget_DevuelveWingetMissing_YNoEjecutaNada()
+    public async Task SinWinget_IntentaBootstrapYSiSigueFaltando_DevuelveWingetMissing_YNoEjecutaNada()
     {
         var runner = new FakeRunner();
+        var bootstrapper = FakeWingetBootstrapper.Fails("no se pudo.");
 
-        IReadOnlyList<WingetResult> results = await Build(runner, wingetPath: null)
+        IReadOnlyList<WingetResult> results = await Build(
+                runner, wingetPath: null, bootstrapper: bootstrapper)
             .InstallAsync(new[] { Package("A.A", "A"), Package("B.B", "B") });
 
         Assert.Equal(2, results.Count);
         Assert.All(results, r => Assert.Equal(WingetOutcome.WingetMissing, r.Outcome));
         Assert.Empty(runner.InstallCalls);
+        Assert.Equal(1, bootstrapper.Calls); // uno por corrida, no uno por paquete
     }
 
     [Fact]
@@ -354,6 +372,75 @@ public sealed class WingetServiceTests
 
         Assert.Empty(results);
         Assert.Empty(runner.InstallCalls);
+    }
+
+    // ---- Bootstrap de winget cuando falta --------------------------------------------------
+
+    [Fact]
+    public async Task SinWinget_IntentaElBootstrapYDespuesInstalaNormal()
+    {
+        var locator = new MutableLocator { Path = null };
+        var runner = new FakeRunner();
+
+        // Simula lo que pasaría de verdad: EnsureAvailableAsync corre Add-AppxPackage y, si
+        // funcionó, winget.exe ya está en el disco — por eso el locator "encuentra" la ruta recién
+        // ACÁ, como efecto del bootstrap, no antes.
+        var bootstrapper = new FakeWingetBootstrapper(() =>
+        {
+            locator.Path = WingetPath;
+            return new WingetBootstrapResult(true, "winget instalado.");
+        });
+
+        IReadOnlyList<WingetResult> results = await Build(
+                runner, locator: locator, bootstrapper: bootstrapper)
+            .InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
+
+        WingetResult result = Assert.Single(results);
+        Assert.Equal(WingetOutcome.Installed, result.Outcome);
+        Assert.Equal(1, bootstrapper.Calls);
+        Assert.Single(runner.InstallCalls); // llegó a instalar de verdad, no se quedó en el bootstrap
+    }
+
+    [Fact]
+    public async Task BootstrapFalla_ElResultadoExplicaQueSeIntentoYNoSePudo()
+    {
+        var locator = new MutableLocator { Path = null }; // sigue sin aparecer
+        var runner = new FakeRunner();
+        var bootstrapper = FakeWingetBootstrapper.Fails(
+            "no se pudo instalar winget: falta Microsoft.UI.Xaml.");
+
+        IReadOnlyList<WingetResult> results = await Build(
+                runner, locator: locator, bootstrapper: bootstrapper)
+            .InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
+
+        WingetResult result = Assert.Single(results);
+        Assert.Equal(WingetOutcome.WingetMissing, result.Outcome);
+        Assert.Contains("se intentó", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Microsoft.UI.Xaml", result.Detail, StringComparison.Ordinal);
+        Assert.Empty(runner.InstallCalls); // nunca se llegó a lanzar winget: no existe
+    }
+
+    [Fact]
+    public async Task BootstrapFalla_SoloSeIntentaUnaVezPorCorrida_NoUnaPorPaquete()
+    {
+        var locator = new MutableLocator { Path = null };
+        var runner = new FakeRunner();
+        var bootstrapper = FakeWingetBootstrapper.Fails("no se pudo.");
+
+        await Build(runner, locator: locator, bootstrapper: bootstrapper)
+            .InstallAsync(new[] { Package("7zip.7zip", "7-Zip"), Package("VideoLAN.VLC", "VLC") });
+
+        Assert.Equal(1, bootstrapper.Calls);
+    }
+
+    [Fact]
+    public async Task WingetYaDisponible_NuncaLlamaAlBootstrap()
+    {
+        // Build() por defecto usa FakeWingetBootstrapper.Forbidden(): si este test pasa, es porque
+        // nadie lo invocó. Lo explícito acá es documentar la intención.
+        var runner = new FakeRunner();
+
+        await Build(runner).InstallAsync(new[] { Package("7zip.7zip", "7-Zip") });
     }
 
     // ---- Configuración real -----------------------------------------------------------------

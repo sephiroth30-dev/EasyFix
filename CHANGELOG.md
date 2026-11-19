@@ -17,6 +17,38 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.9.3] — 2026-11-18
+
+Reporte de uso real: «Instalar programas» falló en un equipo nuevo porque faltaba winget, y
+el único recurso era un botón de diagnóstico que explica el problema sin resolverlo. Era la deuda
+#8 del plan («Bootstrap de winget si falta»), pendiente desde v0.7.0.
+
+### Agregado
+
+- **Instalación automática de winget cuando falta** (`WingetBootstrapper`, nuevo en
+  `Core/Apps/`). Al apretar «Instalar» en un equipo sin winget, EasyFix ya no se bloquea: descarga
+  el instalador oficial (`microsoft/winget-cli`, último release de GitHub) y su dependencia
+  (`Microsoft.VCLibs.x64.14.00.Desktop.appx`, redirect oficial de Microsoft), e instala con
+  `Add-AppxPackage` — un solo intento por corrida, mismo patrón que la reparación de fuentes de
+  winget. **La única prueba de éxito es volver a encontrar `winget.exe` después**: no se confía en
+  el código de salida de `Add-AppxPackage`, mismo principio que ya regía para «fuentes reparadas».
+  Si falla, el resultado explica qué se intentó y por qué no se pudo — nunca un bloqueo mudo.
+- **Límite declarado, no adivinado**: algunos equipos además necesitan `Microsoft.UI.Xaml`, que no
+  tiene un origen oficial estable para bajar suelto. Si `Add-AppxPackage` falla por eso, el mensaje
+  lo dice en vez de intentar una segunda descarga sin probar. El botón «Diagnosticar winget» queda
+  para ese caso: ya no es el primer paso, es el recurso cuando el automático no alcanzó.
+- **Release versionado sin ambigüedad**: el `.exe` del Release ahora se sube también con el nombre
+  `EasyFix-v{versión}.exe`, además del `EasyFix.exe` sin versión (que sigue funcionando para el
+  link estable `.../releases/latest/download/EasyFix.exe`). Antes el archivo descargado se llamaba
+  igual sin importar la versión.
+
+**Probado:** 516 tests (514 + 2 omitidos). Build Release, 0 warnings. El propio bootstrap —
+descargar e instalar winget de verdad— **sin correr en Windows**: es la pieza de mayor riesgo de
+esta versión (instala software real, invoca PowerShell) y queda en `docs/PRUEBAS.md` como la
+primera prueba a hacer en el próximo equipo que lo necesite.
+
+---
+
 ## [0.9.2] — 2026-11-16
 
 Reporte de uso real en dos equipos: «siento que no hizo nada» al usar «Mejorar rendimiento», y

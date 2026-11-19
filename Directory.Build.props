@@ -13,7 +13,7 @@
   -->
 
   <PropertyGroup>
-    <Version>0.9.2</Version>
+    <Version>0.9.3</Version>
 
     <!--
       Derivadas de Version, NUNCA escritas a mano. Estaban clavadas en 0.6.0.0 mientras Version ya
