@@ -173,9 +173,6 @@
                         <StackPanel Grid.Row="1" VerticalAlignment="Top">
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding AnalyzeCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                            VerticalAlignment="Center"
-                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Analizar el equipo" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -184,9 +181,6 @@
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding ImproveCommand}"
                                     IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                            VerticalAlignment="Center"
-                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Mejorar rendimiento" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -195,9 +189,6 @@
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding RepairCommand}"
                                     IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                            VerticalAlignment="Center"
-                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Reparar errores" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -205,9 +196,6 @@
 
                             <Button Style="{StaticResource SidebarNavButton}" Command="{Binding InstallAppsCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                            VerticalAlignment="Center"
-                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Instalar programas" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -221,9 +209,6 @@
                                     IsEnabled="{Binding FixesBlocked, Converter={StaticResource Invert}}"
                                     ToolTip="Instala solos los controladores de bajo riesgo (red, video, audio, USB, Bluetooth, impresora). Los de almacenamiento se informan sin tocar; el firmware/BIOS nunca.">
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                            VerticalAlignment="Center"
-                                            Background="{StaticResource AccentBrush}" />
                                     <TextBlock Text="Buscar controladores" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
@@ -237,9 +222,6 @@
                                 Visibility="{Binding CanUndo, Converter={StaticResource BoolVis}}"
                                 BorderBrush="{StaticResource WarningBrush}">
                             <StackPanel Orientation="Horizontal">
-                                <Border Width="3" Height="16" CornerRadius="2" Margin="0,0,10,0"
-                                               VerticalAlignment="Top"
-                                               Background="{StaticResource WarningBrush}" />
                                 <StackPanel>
                                     <TextBlock Text="Deshacer la última reparación" FontSize="12" FontWeight="SemiBold"
                                                Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" />
@@ -521,6 +503,11 @@
                          navegador y el lector de PDF predeterminados. Windows NO permite que un
                          programa los cambie solo (driver UCPD + hash por usuario); esto abre el
                          lugar exacto para hacerlo en dos clics. -->
+                    <Button Content="Actualizar lo instalado" Command="{Binding UpgradeInstalledCommand}"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            ToolTip="Busca versiones nuevas de los programas que YA están en el equipo y las instala. No instala nada que no esté."
+                            Visibility="{Binding IsBusy, Converter={StaticResource InvertVis}}" />
+
                     <Button Content="Predeterminados" Command="{Binding OpenDefaultAppsCommand}"
                             Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             ToolTip="Abre la pantalla de Windows para poner Chrome como navegador y Acrobat Reader para los PDF."
@@ -630,8 +617,33 @@
                     </ScrollViewer>
                 </Grid>
 
-                <Button Grid.Row="2" Content="Volver al inicio" Command="{Binding BackCommand}"
-                        Style="{StaticResource GhostButton}" Margin="0,14,0,0" HorizontalAlignment="Left" />
+                <StackPanel Grid.Row="2" Margin="0,14,0,0">
+                    <!-- Si la corrida se abortó (típico: no se pudo crear el punto de
+                         restauración), la salida vive ACÁ, donde está el error. Antes la casilla
+                         existía solo en la pantalla de Reporte, así que entrando por «Buscar
+                         controladores» el mensaje mandaba a marcar algo invisible. -->
+                    <Border Style="{StaticResource StatusPanel}" Margin="0,0,0,10"
+                            BorderBrush="{StaticResource WarningBrush}"
+                            Visibility="{Binding LastRunAborted, Converter={StaticResource BoolVis}}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource LabeledCheckBox}"
+                                      IsChecked="{Binding AllowWithoutRestorePoint, Mode=TwoWay}">
+                                <TextBlock Text="Continuar aunque no se pueda crear el punto de restauración"
+                                           TextWrapping="Wrap" />
+                            </CheckBox>
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="11" Margin="25,6,0,0"
+                                       Text="Cada cambio queda registrado igual, así que «Deshacer todo» sigue funcionando. Lo que se pierde es el respaldo del sistema completo." />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Volver al inicio" Command="{Binding BackCommand}"
+                                Style="{StaticResource GhostButton}" />
+                        <Button Content="Reintentar" Command="{Binding RetryLastRunCommand}"
+                                Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                Visibility="{Binding LastRunAborted, Converter={StaticResource BoolVis}}" />
+                    </StackPanel>
+                </StackPanel>
             </Grid>
 
             <!-- ===== 7. Deshacer ===== -->

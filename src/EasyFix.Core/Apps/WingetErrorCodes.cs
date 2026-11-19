@@ -208,6 +208,41 @@ public static class WingetErrorCodes
 
         return phrases.Any(p => standardOutput.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// <c>true</c> si la salida de <c>winget upgrade</c> dice que no había nada que actualizar.
+    /// </summary>
+    /// <remarks>
+    /// <para>No es un fallo, y reportarlo como tal mandaría al técnico a buscar un problema
+    /// inexistente — el mismo ruido que ya costó caro con «ya estaba instalado».</para>
+    ///
+    /// <para><b>Mira SOLO el texto, nunca el código de salida.</b> Un código 0 significa «el
+    /// comando terminó bien», y eso cubre tanto «no había nada» como «actualicé cuatro
+    /// programas»: deducir «todo estaba al día» de un 0 sería afirmar algo que no se midió, que es
+    /// exactamente el defecto que este proyecto persigue desde v0.5.0. Si el texto no lo dice, no
+    /// se asume.</para>
+    ///
+    /// <para>En los dos idiomas: el equipo del cliente puede tener cualquiera.</para>
+    /// </remarks>
+    public static bool SaysNothingToUpgrade(string? standardOutput)
+    {
+        if (string.IsNullOrWhiteSpace(standardOutput))
+        {
+            return false;
+        }
+
+        string[] phrases =
+        {
+            "No installed package found matching",
+            "No se encontró ningún paquete instalado",
+            "No applicable update found",
+            "No hay actualizaciones",
+            "No newer package versions",
+            "No hay versiones más recientes",
+        };
+
+        return phrases.Any(p => standardOutput.Contains(p, StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 /// <summary>

@@ -506,6 +506,95 @@ public sealed class WingetServiceTests
         Assert.Contains("instaló automáticamente", service.LastBootstrapNote, StringComparison.Ordinal);
     }
 
+    // ---- Actualizar lo instalado ------------------------------------------------------------
+
+    [Fact]
+    public void SaysNothingToUpgrade_SoloMiraElTexto_NuncaElCodigoDeSalida()
+    {
+        // La regla central del proyecto aplicada acá: un código 0 significa «el comando terminó
+        // bien», y eso cubre tanto «no había nada» como «actualicé cuatro programas». Deducir
+        // «todo estaba al día» de un 0 sería afirmar algo que no se midió.
+        Assert.False(WingetErrorCodes.SaysNothingToUpgrade(null));
+        Assert.False(WingetErrorCodes.SaysNothingToUpgrade(""));
+        Assert.False(WingetErrorCodes.SaysNothingToUpgrade("Successfully installed Chrome"));
+    }
+
+    [Theory]
+    [InlineData("No installed package found matching input criteria.")]
+    [InlineData("No se encontró ningún paquete instalado que coincida")]
+    [InlineData("No applicable update found")]
+    [InlineData("No hay actualizaciones disponibles")]
+    public void SaysNothingToUpgrade_ReconoceElTextoEnLosDosIdiomas(string output) =>
+        Assert.True(WingetErrorCodes.SaysNothingToUpgrade(output));
+
+    [Fact]
+    public async Task UpgradeAll_SinInternet_NoLanzaNingunProceso()
+    {
+        var runner = new FakeRunner();
+
+        WingetUpgradeResult result = await Build(runner, connectivity: FakeConnectivityCheck.Offline())
+            .UpgradeAllAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("internet", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(runner.Calls);
+    }
+
+    [Fact]
+    public async Task UpgradeAll_SinWinget_LoDiceSinIntentarNada()
+    {
+        var runner = new FakeRunner();
+
+        WingetUpgradeResult result = await Build(runner, wingetPath: null).UpgradeAllAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("winget", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(runner.Calls);
+    }
+
+    [Fact]
+    public async Task UpgradeAll_UsaUpgradeAllEnSilencio()
+    {
+        var runner = new FakeRunner();
+
+        await Build(runner).UpgradeAllAsync();
+
+        (string _, IReadOnlyList<string> args) = Assert.Single(
+            runner.Calls, c => c.Args.Count > 0 && c.Args[0] == "upgrade");
+
+        Assert.Contains("--all", args);
+        Assert.Contains("--silent", args);
+        Assert.Contains("--disable-interactivity", args);
+
+        // --include-unknown queda AFUERA a propósito: actualiza paquetes cuya versión instalada
+        // winget no pudo determinar, o sea sin saber desde dónde se parte.
+        Assert.DoesNotContain("--include-unknown", args);
+    }
+
+    [Fact]
+    public async Task UpgradeAll_ExitoSinTextoDeNada_NoAfirmaQueTodoEstabaAlDia()
+    {
+        var runner = new FakeRunner(_ =>
+            new ProcessResult(0, "Successfully upgraded 3 packages", "", false, TimeSpan.Zero));
+
+        WingetUpgradeResult result = await Build(runner).UpgradeAllAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.DoesNotContain("al día", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UpgradeAll_CuandoWingetDiceQueNoHayNada_LoReportaComoExito()
+    {
+        var runner = new FakeRunner(_ =>
+            new ProcessResult(0, "No installed package found matching input criteria.", "", false, TimeSpan.Zero));
+
+        WingetUpgradeResult result = await Build(runner).UpgradeAllAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("al día", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ---- Configuración real -----------------------------------------------------------------
 
     [Fact]

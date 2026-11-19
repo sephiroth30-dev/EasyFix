@@ -17,6 +17,46 @@ Cada versión probada en un equipo real lleva su resultado anotado. Lo que no se
 
 ---
 
+## [0.12.0] — 2026-11-19
+
+### Corregido — el mensaje mandaba a marcar una casilla invisible
+
+Reporte real: al buscar controladores, no se pudo crear el punto de restauración y la app dijo
+«se puede continuar marcando la casilla correspondiente»… pero esa casilla **vivía solo en la
+pantalla de Reporte**. Entrando por «Buscar controladores» —que va de Inicio directo a
+Reparando— nunca se pasaba por ahí: el remedio era literalmente inalcanzable.
+
+Ahora, cuando una corrida se aborta, la casilla **y un botón «Reintentar»** aparecen en la
+pantalla del resultado, donde está el error. El error y su solución, en el mismo lugar.
+
+### Agregado — «Actualizar lo instalado»
+
+`winget install` sobre algo ya presente no actualiza: devuelve «ya estaba instalado» y listo.
+Esto es lo otro — `winget upgrade --all`, que es el trabajo manual de ir programa por programa
+buscando versiones nuevas.
+
+No instala nada que no esté ya, y **`--include-unknown` queda afuera a propósito**: ese flag
+actualiza paquetes cuya versión instalada winget no pudo determinar, o sea sin saber desde qué
+versión se parte. Sin el dato, no se toca.
+
+Detalle que importa: **un código de salida 0 NO se traduce como «todo estaba al día»**. Un 0
+significa «el comando terminó bien», y eso cubre tanto «no había nada» como «actualicé cuatro
+programas». Solo se afirma que estaba al día si winget lo dice por texto. Es la misma regla de
+v0.5.0 aplicada a un caso nuevo, y tiene tests.
+
+### Cambiado — pase minimalista
+
+- **Barra lateral sin recuadros.** Cinco botones con borde apilados en una columna angosta son
+  cinco líneas de ruido; el hover ya comunica que son clickeables y el espacio los separa.
+- **Fuera las barras de acento decorativas** que reemplazaron a los iconos en v0.10.1: cinco
+  marcas idénticas no distinguen nada, solo llenan.
+- **Los paneles de estado perdieron el marco permanente.** El fondo propio ya los separa. El
+  borde aparece solo cuando hay una advertencia — así deja de ser decoración y significa algo.
+
+**Probado:** 583 tests (581 + 2 omitidos), build Release 0 warnings. Sin verificar en Windows.
+
+---
+
 ## [0.11.1] — 2026-11-19
 
 Reporte de uso: «no me dejó predeterminado Chrome después de la instalación aunque la cancelé».

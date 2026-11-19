@@ -17,6 +17,11 @@ public sealed record InstallProgress(
     int Total,
     WingetResult? Finished = null);
 
+/// <summary>Resultado de actualizar todo lo que tuviera versión nueva.</summary>
+/// <param name="Succeeded">La operación terminó bien. «No había nada que actualizar» también es éxito.</param>
+/// <param name="Detail">Qué pasó, en español, para el reporte.</param>
+public sealed record WingetUpgradeResult(bool Succeeded, string Detail);
+
 /// <summary>
 /// Instala programas con winget.
 /// </summary>
@@ -117,6 +122,85 @@ public sealed class WingetService
             .ConfigureAwait(false);
 
         return result.Succeeded ? result.StandardOutput.Trim() : null;
+    }
+
+    /// <summary>
+    /// Actualiza todo lo que tenga una versión nueva disponible, sin instalar nada que no esté ya.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>winget install</c> sobre algo ya presente no actualiza: devuelve «ya estaba
+    /// instalado» y listo. Esto es lo otro — <c>winget upgrade --all</c>, el equivalente a pasar
+    /// por cada programa del equipo buscando versiones nuevas, que es trabajo manual puro.</para>
+    ///
+    /// <para><b>Qué NO hace y es deliberado:</b> no instala nada nuevo, no toca lo que winget no
+    /// conoce, y <c>--include-unknown</c> queda afuera a propósito — ese flag actualiza paquetes
+    /// cuya versión instalada winget no pudo determinar, y sin saber desde qué versión se parte no
+    /// hay forma de saber qué se está cambiando. Es la misma regla de siempre: sin el dato, no se
+    /// toca.</para>
+    ///
+    /// <para>El progreso se reporta como una sola operación larga: winget no emite por paquete de
+    /// forma parseable, y fabricar un porcentaje por paquete sería inventar.</para>
+    /// </remarks>
+    public async Task<WingetUpgradeResult> UpgradeAllAsync(
+        IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        ConnectivityResult connectivity = await _connectivity.CheckAsync(ct).ConfigureAwait(false);
+        if (!connectivity.IsOnline)
+        {
+            return new WingetUpgradeResult(false,
+                "No se puede actualizar: el equipo no tiene internet.");
+        }
+
+        string? winget = _locator.Find();
+        if (winget is null)
+        {
+            return new WingetUpgradeResult(false,
+                "winget no está disponible en este equipo, así que no hay con qué actualizar.");
+        }
+
+        progress?.Report("Buscando programas con versión nueva…");
+
+        ProcessResult result = await _runner.RunAsync(
+            winget,
+            new[]
+            {
+                "upgrade", "--all", "--silent", "--disable-interactivity",
+                "--accept-package-agreements", "--accept-source-agreements",
+            },
+            _thresholds.ExternalProcessTimeout,
+            ct).ConfigureAwait(false);
+
+        if (result.TimedOut)
+        {
+            return new WingetUpgradeResult(false,
+                "La actualización no terminó en el tiempo previsto y se canceló.");
+        }
+
+        string output = result.StandardOutput;
+        bool nothingToDo = WingetErrorCodes.SaysNothingToUpgrade(output);
+
+        if (result.Succeeded)
+        {
+            // Terminó bien. Que además no hubiera nada SOLO se afirma si winget lo dijo: de un
+            // código 0 no se puede deducir cuál de los dos casos fue.
+            return new WingetUpgradeResult(true, nothingToDo
+                ? "Todo estaba al día: no había nada para actualizar."
+                : "La actualización terminó correctamente. En el log queda el detalle de qué tocó.");
+        }
+
+        // Código distinto de cero pero winget dice que no había nada: no es un fallo.
+        if (nothingToDo)
+        {
+            return new WingetUpgradeResult(true, "Todo estaba al día: no había nada para actualizar.");
+        }
+
+        _logger.LogWarning(
+            "winget upgrade --all devolvió {Code}. stdout: {Out} stderr: {Err}",
+            result.ExitCode, output, result.StandardError);
+
+        return new WingetUpgradeResult(false,
+            $"La actualización terminó con el código {result.ExitCode}. " +
+            "Puede que algún programa haya quedado a medias: revisalo en el log.");
     }
 
     /// <summary>

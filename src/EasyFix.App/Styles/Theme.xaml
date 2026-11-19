@@ -77,10 +77,12 @@
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <!-- Sin borde: cinco recuadros apilados en una columna angosta son cinco líneas de ruido.
+             El hover ya comunica que son clickeables, y el espacio hace la separación. -->
+        <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="14,12" />
-        <Setter Property="Margin" Value="0,0,0,8" />
+        <Setter Property="Padding" Value="12,11" />
+        <Setter Property="Margin" Value="0,0,0,2" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -121,10 +123,14 @@
         <Setter Property="Padding" Value="0,0,0,5" />
     </Style>
 
-    <!-- Panel de estado. El borde se pone rojo cuando StatusIsWarning es true. -->
+    <!--
+        Panel de estado. Sin borde por defecto: el fondo propio ya lo separa del resto, y un marco
+        alrededor de cada panel en una pantalla que tiene varios es ruido puro. El borde aparece
+        SOLO cuando hay una advertencia — así deja de ser decoración y pasa a significar algo.
+    -->
     <Style x:Key="StatusPanel" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="8" />
         <Setter Property="Padding" Value="14,12" />

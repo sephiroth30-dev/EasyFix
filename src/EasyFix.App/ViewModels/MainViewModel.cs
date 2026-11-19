@@ -131,6 +131,12 @@ public sealed partial class MainViewModel : ObservableObject
             () => RunFixesAsync(FixCategory.Repair, onlyFixId: "drivers.update",
                 label: "Buscando controladores…"),
             () => !IsBusy);
+        RetryLastRunCommand = new AsyncRelayCommand(
+            () => _lastRun is { } r
+                ? RunFixesAsync(r.Category, r.OnlyFixId, r.Label)
+                : Task.CompletedTask,
+            () => !IsBusy && _lastRun is not null);
+        UpgradeInstalledCommand = new AsyncRelayCommand(UpgradeInstalledAsync, () => !IsBusy);
         RunInstallCommand = new AsyncRelayCommand(InstallSelectedAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
         BackCommand = new RelayCommand(() => CurrentScreen = Screen.Home);
@@ -157,6 +163,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand ImproveCommand { get; }
     public IAsyncRelayCommand RepairCommand { get; }
     public IAsyncRelayCommand UpdateDriversCommand { get; }
+    public IAsyncRelayCommand RetryLastRunCommand { get; }
+    public IAsyncRelayCommand UpgradeInstalledCommand { get; }
     public IAsyncRelayCommand RunInstallCommand { get; }
     public IRelayCommand CancelCommand { get; }
     public IRelayCommand BackCommand { get; }
@@ -224,6 +232,8 @@ public sealed partial class MainViewModel : ObservableObject
         ImproveCommand.NotifyCanExecuteChanged();
         RepairCommand.NotifyCanExecuteChanged();
         UpdateDriversCommand.NotifyCanExecuteChanged();
+        RetryLastRunCommand.NotifyCanExecuteChanged();
+        UpgradeInstalledCommand.NotifyCanExecuteChanged();
         RunInstallCommand.NotifyCanExecuteChanged();
         DiagnoseWingetCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
@@ -510,6 +520,24 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _rebootRequired;
+
+    /// <summary>
+    /// La última corrida se abortó antes de tocar nada (típicamente: no se pudo crear el punto de
+    /// restauración). Muestra la casilla de continuar sin punto y el botón de reintentar en la
+    /// pantalla de resultado.
+    /// </summary>
+    /// <remarks>
+    /// Existe por un fallo de flujo reportado desde un equipo real: el mensaje de aborto decía
+    /// «marcá la casilla correspondiente», pero esa casilla vivía solo en la pantalla de Reporte.
+    /// Entrando por «Buscar controladores» —que va directo de Inicio a Reparando— nunca se pasaba
+    /// por ahí, así que el remedio era literalmente invisible. Ahora el error y su solución están
+    /// en el mismo lugar.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _lastRunAborted;
+
+    /// <summary>Qué correr si el técnico aprieta «Reintentar». Se guarda al lanzar cada corrida.</summary>
+    private (FixCategory Category, string? OnlyFixId, string? Label)? _lastRun;
 
     /// <summary>
     /// El técnico eligió aplicar cambios aunque no se pueda crear el punto de restauración.
@@ -866,6 +894,10 @@ public sealed partial class MainViewModel : ObservableObject
             ? "Mejorando el rendimiento…"
             : "Reparando el equipo…");
 
+        // Para «Reintentar» desde la pantalla de resultado, si la corrida se aborta.
+        _lastRun = (category, onlyFixId, label);
+        LastRunAborted = false;
+
         RepairRows.Clear();
         StatusMessage = null;
         ResetProgress(RunningCategoryLabel);
@@ -1045,6 +1077,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (result.Aborted)
         {
+            LastRunAborted = true;
+
             RepairRows.Add(new ReportRow(
                 "No se aplicó ningún cambio", result.AbortReason ?? string.Empty, null, "crit"));
             SetStatus("La reparación se abortó antes de tocar nada.", warning: true);
@@ -1232,6 +1266,55 @@ public sealed partial class MainViewModel : ObservableObject
             IsBusy = false;
             ProgressLabel = string.Empty;
             ProgressStep = null;
+        }
+    }
+
+    /// <summary>
+    /// Actualiza los programas del equipo que tengan versión nueva. No instala nada nuevo.
+    /// </summary>
+    /// <remarks>
+    /// Es lo que <c>winget install</c> NO hace: sobre algo ya presente devuelve «ya estaba
+    /// instalado» y no actualiza. Pasar programa por programa buscando versiones nuevas es
+    /// trabajo manual puro, y es de lo que más se repite en una visita.
+    /// </remarks>
+    private async Task UpgradeInstalledAsync()
+    {
+        IsBusy = true;
+        StatusMessage = null;
+        ResetProgress("Actualizando programas");
+        ResetCancellation();
+
+        try
+        {
+            var progress = new Progress<string>(msg =>
+            {
+                InstallProgressLabel = msg;
+                ProgressIsIndeterminate = true;
+            });
+
+            WingetUpgradeResult result = await _winget.UpgradeAllAsync(progress, _cts!.Token);
+
+            InstallProgressLabel = null;
+            SetStatus(result.Detail, warning: !result.Succeeded);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("La actualización se canceló.");
+            InstallProgressLabel = null;
+            SetStatus(
+                "Actualización cancelada. Lo que ya se había actualizado quedó actualizado.",
+                warning: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "La actualización falló.");
+            InstallProgressLabel = null;
+            SetStatus($"La actualización falló: {ex.GetType().Name}: {ex.Message}", warning: true);
+        }
+        finally
+        {
+            IsBusy = false;
+            ProgressLabel = string.Empty;
         }
     }
 
