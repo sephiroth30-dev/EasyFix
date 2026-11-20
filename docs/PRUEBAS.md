@@ -3,8 +3,8 @@
 Qué probar, en qué orden, y qué capturar. El orden importa: va de lo que no puede romper nada a lo
 que sí.
 
-**Antes de empezar:** anotá la versión que aparece en la barra de título (hoy `v0.5.0`). Un reporte sin
-versión no se puede atar a ningún build.
+**Antes de empezar:** anotá la versión que aparece en la barra de título (hoy `v0.17.0`). Un reporte
+sin versión no se puede atar a ningún build.
 
 ---
 
@@ -25,51 +25,40 @@ El log tiene el detalle de cada sonda, cada llamada a winget con su código de s
 
 - [ ] Doble click → aparece el aviso de administrador (UAC) → aceptar.
 - [ ] SmartScreen dice que es desconocido → «Más información» → «Ejecutar de todas formas».
-- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.8.0`.
+- [ ] La ventana abre y dice `EasyFix · por Andrés Hernández · v0.17.0`.
 - [ ] Click derecho en el `.exe` → Propiedades → Detalles: aparece la empresa y el copyright, y la
-      **versión del archivo dice 0.8.0.0**. Hasta v0.7.0 decía 0.6.0.0 mientras la ventana decía otra
-      cosa, así que era imposible saber qué binario estaba corriendo.
+      **versión del archivo dice 0.17.0.0**. Hasta v0.7.0 decía 0.6.0.0 mientras la ventana decía
+      otra cosa, así que era imposible saber qué binario estaba corriendo.
+- [ ] **El análisis arranca solo**, sin apretar nada. Antes había que pulsar «Analizar» y hasta
+      entonces el resto de las acciones estaban bloqueadas, lo que se sentía como «solo funciona
+      un botón».
 
 **Si no arranca:** el log puede no haberse creado todavía. Capturá el mensaje de error textual.
 
 ---
 
-## Nivel 0.5 — Diseño nuevo (v0.9.5) · SEGURO, no modifica nada
+## Nivel 0.5 — La interfaz · SEGURO, no modifica nada
 
-El rediseño horizontal con barra lateral compiló limpio pero **nunca se vio renderizado** — esto es
-lo primero a mirar, antes de cualquier otra cosa, porque si algo se ve mal acá probablemente afecta
-a todas las pantallas siguientes.
+**Nada de esto se vio nunca renderizado**: WPF compila fuera de Windows pero no corre, así que
+ningún build dibuja la pantalla. Es lo primero a mirar, porque un problema acá afecta a todas las
+pantallas siguientes.
 
-- [ ] La ventana abre en **1000×640**, no 460×620 como antes. Esquinas redondeadas visibles
-      (si el equipo es Windows 11; en Windows 10 puede no notarse, y eso es lo esperado).
-- [ ] **Barra lateral izquierda** (~248 px) con las 4 acciones + sus iconos, y la identidad del
-      equipo arriba (antes de analizar dice «Pulsá Analizar para empezar»).
-- [ ] Los iconos de la barra (lupa, rayo, llave, flecha de descarga) se ven como se espera — no
-      como un cuadrado vacío o un signo de interrogación (señal de que la fuente de iconos no
-      resolvió el símbolo).
-- [ ] Pantalla de Inicio: **ya no tiene los 4 botones grandes**, solo el mensaje central
-      «Elegí una acción en el panel izquierdo para empezar».
-- [ ] Pantalla de **Reporte**: dos columnas lado a lado, cada una con su propio scroll
-      independiente. Ningún texto se corta ni se superpone con la columna vecina.
-- [ ] Mismo chequeo en la pantalla de **Resultado de la reparación** (después de Mejorar/Reparar).
-- [ ] Los botones (Analizar, Mejorar, etc.) siguen funcionando igual que antes — el rediseño no
-      debería haber cambiado ningún comando, solo dónde vive cada cosa en pantalla.
-
-### v0.11.0 — lo nuevo a mirar
-
+- [ ] La ventana abre y **no hay barra lateral**. Se quitó entera: el espacio de la izquierda
+      ahora lo usa el resumen.
+- [ ] **Maximizar** con el botón ▢ y con doble clic en la barra de título. La ventana **no** debe
+      tapar la barra de tareas. Restaurar y confirmar que vuelve al tamaño anterior.
+- [ ] **Maximizada, el espacio extra se usa**: las columnas se ensanchan con la ventana en vez de
+      quedar fijas con un hueco vacío al costado. Las líneas de texto no se vuelven
+      incómodamente largas.
+- [ ] **Redimensionar** arrastrando los bordes; no debería poder achicarse más allá de 860×560, y
+      al achicar, las columnas no deberían aplastarse ni superponerse.
 - [ ] **Tema claro**: poner Windows en «Modo de aplicación: Claro» y abrir EasyFix. Tiene que
-      verse claro y **legible**. Es una paleta nueva que nadie vio renderizada: si algo no se
-      lee, capturar esa pantalla. Volver a «Oscuro» y confirmar que vuelve al tema de siempre.
-- [ ] **Maximizar**: botón ▢ y doble clic en la barra de título. La ventana **no** debe tapar la
-      barra de tareas. Restaurar y confirmar que vuelve al tamaño anterior.
-- [ ] **Redimensionar** arrastrando los bordes; no debería poder achicarse más allá de 860×560.
-- [ ] **Progreso sin scroll**: marcar varios programas, instalar, y confirmar que la barra de
-      progreso se ve **sin tener que bajar** — es el bug que motivó el cambio.
-- [ ] **Historias**: mientras instala cada programa, debajo de la barra tiene que aparecer el
-      texto de ese programa, y cambiar al pasar al siguiente.
-- [ ] **Marcar durante la instalación**: con la tanda corriendo, marcar un programa que estaba
-      desmarcado. Tiene que instalarse en la misma corrida, sin apretar «Instalar» de nuevo.
-      Desmarcar uno que todavía no arrancó: no debería instalarse.
+      verse claro y **legible**. Volver a «Oscuro» y confirmar que vuelve al tema de siempre.
+- [ ] **La barra de desplazamiento** es fina y moderna, estilo Chrome — no la barra gris con
+      flechitas de Windows clásico.
+- [ ] **El resumen central destaca solo lo que necesita atención.** Lo que está bien se cuenta
+      («N revisados, M en orden»), no se enumera uno por uno.
+- [ ] **No hay explicaciones ni descargos técnicos en pantalla** en ningún lado.
 
 ### Qué capturar
 Captura de pantalla de cada una de las 7 pantallas (Inicio, Analizando, Reporte, Instalar,
@@ -197,13 +186,19 @@ log dice `internet = CaptivePortal`.
 
 ## Nivel 1.8 — Bootstrap de winget · MODIFICA el equipo (instala un paquete Appx)
 
-Solo aplica a un equipo donde «Diagnosticar winget» diga que no lo encuentra. Si no tenés ninguno a
-mano, probar en una VM Windows 11 recién instalada SIN haber abierto nunca la Microsoft Store (así
-nunca se aprovisiona el paquete por usuario) — es el escenario real que reportó el primer uso.
+Solo aplica a un equipo sin winget. Si no tenés ninguno a mano, probar en una VM Windows 11 recién
+instalada SIN haber abierto nunca la Microsoft Store (así nunca se aprovisiona el paquete por
+usuario) — es el escenario real que reportó el primer uso.
+
+> **Desde v0.17.0 este nivel dejó de ser crítico.** Ninguno de los diez programas necesita winget;
+> el bootstrap existe para «Actualizar lo instalado». Si falla, la instalación de los diez tiene
+> que seguir funcionando igual — eso es parte de lo que se prueba acá.
 
 - [ ] Con winget ausente, apretar «Instalar» en la pantalla de Apps (con al menos un programa
       marcado). **No debería bloquearse ni pedir nada**: tiene que descargar e instalar winget
       solo, y seguir con la instalación del programa en la misma corrida.
+- [ ] **Si el bootstrap falla, los diez programas se instalan igual.** Un fallo de winget ya no
+      puede dejar al técnico sin nada.
 - [ ] Mirar el log: debe aparecer `Bootstrap de winget: True. winget se instaló...` y, antes de
       declarar éxito, tiene que haber vuelto a buscar `winget.exe` — no alcanza con que
       `Add-AppxPackage` no tirara error.
@@ -253,32 +248,58 @@ textual es el dato que permite corregir el clasificador.**
 
 Instala software. En un equipo propio primero.
 
-- [ ] «Instalar programas» muestra los 10 programas, 6 marcados.
-- [ ] **«Diagnosticar winget» primero.** Muestra dónde está winget, su versión y si lee su catálogo.
-      Es lo que dice si el problema de la prueba anterior quedó resuelto.
-- [ ] Instalar solo **7-Zip** para empezar: es chico, rápido e inofensivo.
-- [ ] Después **RustDesk** y **Chrome**, que van por descarga directa y no por winget:
-      RustDesk desde GitHub (prefiere el MSI), Chrome desde el MSI empresarial de Google.
+**Lo que esta versión cambia:** ninguno de los diez pasa por winget. Si winget falta o falla, los
+diez tienen que instalarse igual. Esa es la prueba central del nivel.
+
+- [ ] «Instalar programas» muestra los **10 programas, 6 marcados**.
+- [ ] **Los que ya están instalados aparecen en gris y desmarcados**, con «Ya instalado». No hay
+      que apretar Instalar para enterarse.
+- [ ] Empezar por **7-Zip**: chico, rápido e inofensivo.
+- [ ] Después **Chrome** y **RustDesk**, que van por descarga directa.
+- [ ] Después **Adobe Reader** y **VLC**, que son los nuevos de v0.17.0 — resuelven su versión
+      consultando el origen en el momento.
 - [ ] Al final el resto.
+
+> **Adobe Reader pesa unos 800 MB.** Es el instalador oficial x64, el mismo que baja winget; no
+> existe una versión liviana. En una conexión lenta son 10–15 minutos solo para ese programa.
 
 ### Lo que hay que mirar
 
 | Estado en la fila | Qué significa |
 |---|---|
 | `Instalado` | Lo instaló ahora |
-| `Ya estaba` | Estaba desde antes. **No es un fallo** |
-| `winget sin catálogo` | El problema de la sesión elevada. Debería auto-repararse y reintentar |
-| `No está en el catálogo` | El ID cambió. Hay que corregirlo en `appsettings.json` |
+| `Ya estaba` / `Ya instalado` | Estaba desde antes. **No es un fallo** |
+| `No se encontró un instalador` | El origen cambió de formato. Hay que revisar `matchPattern` en `appsettings.json` |
+| `No está en el catálogo` | El ID cambió. Corregirlo en `appsettings.json` |
 | `Falló` | Trae el código de error en rojo debajo del nombre |
 
-Los dos que vienen de descarga directa tienen **timeout propio** —8 min RustDesk, 10 min Chrome— en
-vez de los 30 min generales. Si uno se cuelga, ya no bloquea toda la tanda.
+- [ ] **Una barra de avance por programa**, con los MB que lleva (`12 MB de 28 MB`). No una sola
+      barra global.
+- [ ] **El logo real** del programa mientras se instala, no una letra. Los que van por winget y
+      los instaladores sin icono muestran el monograma, y eso es lo esperado.
+- [ ] **La historia se alcanza a leer.** 7-Zip instala en segundos; su historia igual tiene que
+      quedar en pantalla el tiempo suficiente.
+- [ ] **Todo en silencio.** Ninguna ventana de instalador, ningún «Windows Installer», ningún
+      diálogo esperando un Enter. Si aparece alguna, capturarla: es un argumento silencioso
+      equivocado.
+- [ ] **Cancelar cancela.** Empezar la descarga de VLC o Adobe, apretar otro programa o Cancelar, y
+      confirmar que la descarga anterior **se corta** en vez de seguir en segundo plano.
+- [ ] **Marcar durante la instalación**: con la tanda corriendo, marcar un programa que estaba
+      desmarcado. Tiene que instalarse en la misma corrida, sin apretar «Instalar» de nuevo.
+      Desmarcar uno que todavía no arrancó: no debería instalarse.
+
+### La prueba que importa — sin winget
+
+En un equipo que no tenga winget (Windows 10 anterior a 1809, o una instalación recién hecha):
+
+- [ ] Instalar los 10. **Los 10 tienen que entrar igual.** Si alguno dice «winget no está
+      disponible», eso es el fallo que estas dos versiones vinieron a cerrar: capturar cuál.
 
 ### Qué capturar
 
-1. La salida completa de «Diagnosticar winget».
-2. Captura de la lista con los estados.
-3. El log — tiene el código de salida exacto de cada paquete.
+1. Captura de la lista con los estados finales.
+2. El log — tiene la URL resuelta de cada programa y su código de salida exacto.
+3. Si algo abrió una ventana, la captura de esa ventana con su texto.
 
 ---
 
@@ -378,7 +399,7 @@ código apunta a RAM o disco, reparar no sirve y el reporte lo tiene que decir.
 ## Plantilla para reportar
 
 ```
-Versión:        v0.5.0
+Versión:        v0.17.0
 Equipo:         (marca, modelo, Windows 10/11, build)
 Nivel probado:  0 / 1 / 2 / 3 / 4
 

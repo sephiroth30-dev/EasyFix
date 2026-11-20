@@ -4,15 +4,61 @@
 > Versionado con el código, así que viaja con el repo. El `README.md` es el resumen para quien llega
 > nuevo; esto es el detalle para seguir trabajando.
 
-> Al retomar, leer en este orden: **v0.9.0 — Estado y plan activo** → la sección del componente que
+> Al retomar, leer en este orden: **v0.17.0 — Estado y plan activo** → la sección del componente que
 > se vaya a tocar. El resto del documento es material de referencia que cambia poco: objetivo,
 > arquitectura, catálogos de diagnóstico y de fixes.
+>
+> Desde v0.17.0 hay además dos documentos de referencia estables que evitan tener que leer esto
+> entero: [`ARQUITECTURA.md`](ARQUITECTURA.md) (módulo por módulo) y
+> [`CATALOGO.md`](CATALOGO.md) (agregar o cambiar un programa).
 
-## v0.9.2 — Estado y plan activo
+## v0.17.0 — Estado y plan activo
 
-> Última actualización: 2026-11-16, después de v0.9.2.
-> **510 tests pasan, 2 se omiten** (los que exigen Windows). `dotnet build` limpio en Release, cero
-> warnings. `.exe` portable ~69 MiB. CI en `windows-latest` corre en cada push.
+> Última actualización: 2026-11-20, después de v0.17.0.
+> **619 pruebas pasan, 2 se omiten** (las que exigen Windows). `dotnet build -c Release` limpio,
+> cero warnings. `.exe` portable ~69 MiB. CI en `windows-latest` en cada push; release automático
+> al empujar un tag `v*.*.*`.
+
+### v0.16.0 – v0.17.0 — winget deja de ser un punto único de fallo
+
+Reporte repetido en equipos de cliente: **«no instaló nada porque falla el winget»**, y después
+**«Adobe volvió a dar el error, dice que winget no está disponible»**.
+
+Hoy **ninguno de los diez programas depende de winget**, y lo verifica un test sobre el
+`appsettings.json` real: agregar uno sin origen propio rompe el build, no la visita al cliente.
+
+Para los dos últimos casos difíciles —Adobe y VLC, que no están en GitHub y llevan la versión
+adentro de la URL— se agregó una tercera forma de resolver el instalador: **consultar un índice en
+el momento** y sacar la versión con una expresión regular. No se clava ninguna versión en la
+configuración: funcionaría el día que se escribe y después se pudriría sola.
+
+Todas las fuentes se verificaron con una petición real, y las tres últimas se contrastaron además
+contra el manifiesto de winget en `microsoft/winget-pkgs` —de donde winget las bajaría— incluidos
+los argumentos de instalación silenciosa. **Nunca se configura una URL sin pedirla antes.** El
+procedimiento completo está en [`CATALOGO.md`](CATALOGO.md).
+
+De paso aparecieron dos fallos que no eran del catálogo:
+
+- **`HttpClient.Timeout` cubre toda la operación, incluido leer el cuerpo.** Con 10 minutos, los
+  ~800 MB de Adobe Reader se cortaban por debajo de ~11 Mbps y en pantalla se veía como una
+  cancelación sin motivo. Ahora 40.
+- **El avance de las descargas directas se descartaba**: Chrome y RustDesk bajaban sus MB sin
+  mostrar nada. Era el mismo fallo ya corregido para el bootstrap de winget, en otro lugar del
+  código — vale como recordatorio de que corregir un síntoma no corrige sus hermanos.
+
+winget sigue instalándose si falta, y se usa para **«Actualizar lo instalado»**, que no tiene
+sustituto. Pero ya no es el único camino para ningún programa.
+
+### v0.16.0 — la interfaz se vuelve legible mientras trabaja
+
+Barra de avance **por programa** con sus MB (una barra global no dice cuál está tardando), **logo
+real** sacado del instalador recién descargado con monograma de respaldo, y columnas proporcionales
+en vez de fijas para que al maximizar no quede el espacio vacío.
+
+> **Una guarda que hizo su trabajo.** Al agregar el logo entró un `BitmapSource` —tipo de WPF— en el
+> `MainViewModel`, y el proyecto de pruebas dejó de compilar: compila el ViewModel **sin** WPF
+> justamente para poder correr desde cualquier sistema. El error era mío, no de la prueba. El
+> ViewModel guarda ahora la **ruta** y la conversión vive en un converter. **No se tocó la prueba.**
 
 ### v0.9.2 — la medición de "programas de inicio" mentía, y nadie se había dado cuenta
 
@@ -82,6 +128,13 @@ nuevo: **la herramienta afirmaba cosas que no había medido.**
 La regla que salió de ahí, y que ya está aplicada en todo el código nuevo: **un dato que no se pudo
 medir nunca se cuenta como verde**, y **un éxito falso es peor que un fallo falso** porque no deja
 rastro que haga sospechar.
+
+**La segunda lección, de v0.12.2 a v0.17.0.** Tres reportes distintos —«nunca instaló el 7-Zip»,
+«no instaló nada porque falla el winget», «Adobe volvió a dar el error»— eran el mismo defecto de
+diseño: **todo el catálogo colgaba de una sola dependencia**. Mientras quedó un solo programa
+dependiendo de winget, el reporte volvió. No alcanzaba con corregir el caso que el usuario nombró;
+había que sacar el punto único de fallo entero, y después ponerle un test para que no vuelva a
+entrar sin que nadie se entere.
 
 ### v0.8.0 — detección de red
 
@@ -293,7 +346,7 @@ Conteo de tests por área, para saber qué está respaldado y qué no. **432 en 
 | Análisis de pantallazos azules | `Core/Diagnostics/CrashAnalysis.cs` | Catálogo de 23 bugchecks. **Sin equipo que tenga pantallazos** |
 | Cálculo del progreso | `Core/Fixes/IFix.cs`, `Core/Diagnostics/SystemProbe.cs` | 17 tests: monotonía, rango acotado, total en cero |
 | `PathGuard`, certificados, IDs de winget, config | `Core/Safety/`, `Core/Apps/`, `Core/Configuration/` | el resto |
-| UI en WPF: 7 pantallas | `App/Views/MainWindow.xaml` | compila; **ejecutada solo hasta v0.6.0** |
+| UI en WPF: 7 pantallas | `App/Views/MainWindow.xaml` | compila y se ejecuta en equipos reales; **nunca se vio renderizada desde el entorno de desarrollo** |
 
 **La única clase que habla con Windows es `Core/Diagnostics/SystemProbe.cs`** (más los servicios de
 punto de restauración, BitLocker y el runner de procesos). Todo lo demás es lógica pura sobre el
@@ -437,8 +490,8 @@ Event ID 100 de `Microsoft-Windows-Diagnostics-Performance/Operational` → camp
 > compila en macOS y que la VM era un blocker para todo. **Es falso.** Con
 > `<EnableWindowsTargeting>true</EnableWindowsTargeting>` el SDK baja el reference pack de
 > `Microsoft.WindowsDesktop.App` y compila el proyecto WPF, XAML incluido, desde macOS. Comprobado:
-> los tres proyectos compilan y los 432 tests pasan en esta Mac (Intel, macOS 12.7.6, .NET SDK 8.0.424
-> instalado en `~/.dotnet`).
+> los tres proyectos compilan y las pruebas pasan en esta Mac (Intel, macOS 12.7.6, .NET SDK 8.0.424
+> instalado en `~/.dotnet`) — eran 432 cuando se comprobó; hoy son 619.
 >
 > Lo que la VM **sí** sigue habilitando, y no es poco: ejecutar el `.exe`, y probar todo lo que toca
 > WMI, registro, servicios, puntos de restauración y el antes/después del arranque. Las fases de
@@ -1169,7 +1222,7 @@ fallando, punto de restauración, BitLocker sin confirmar, dominio.
 ### Lo que corre hoy, en cualquier sistema
 
 ```bash
-dotnet test                                        # 432 pasan, 2 se omiten fuera de Windows
+dotnet test -c Release                             # 619 pasan, 2 se omiten fuera de Windows
 dotnet test --filter 'Category!=RequiresWindows'   # solo lo portable
 dotnet test --filter 'Category!=Integration'       # solo lógica pura, sin tocar el disco
 ```
@@ -1237,7 +1290,7 @@ export PATH="$HOME/.dotnet:$PATH"     # no queda persistente: agregalo al perfil
 ```bash
 cd ~/Proyectos/EasyFix
 dotnet build      # los tres proyectos, incluido el de WPF
-dotnet test       # 432 pasan, 2 se omiten
+dotnet test       # 619 pasan, 2 se omiten
 ```
 
 ### Generar el `.exe` portable

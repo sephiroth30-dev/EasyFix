@@ -10,7 +10,7 @@ Documento autocontenido. No hace falta leer el código ni el resto del repo.
 (~69 MB) que se lleva en un pendrive: diagnostica el equipo del cliente, aplica las mejoras seguras,
 repara errores del sistema e instala el software base.
 
-Autor: **Andrés Hernández**. Versión actual: **0.6.0** — pre-lanzamiento.
+Autor: **Andrés Hernández**. Versión actual: **0.17.0** — en pruebas en equipos reales.
 
 **No es un instalador.** No se instala nada en el equipo del cliente, no escribe en el registro al
 copiarse, y no hay nada que desinstalar. Se copia, se ejecuta, se retira el pendrive.
@@ -29,8 +29,12 @@ trabajo se hace una vez, en la casa del cliente, sin poder volver fácil si algo
 | **Analizar el equipo** | Mide disco, RAM, CPU, arranque, antivirus, pantallazos azules. **Solo lectura, no modifica nada.** | Menos de 15 s |
 | **Mejorar rendimiento** | Limpia temporales, quita programas del inicio, ajusta el disco y la energía | Minutos |
 | **Reparar errores** | DISM, `sfc`, `chkdsk`, reset de Windows Update y de la red | Hasta una hora |
+| **Buscar controladores** | Actualiza drivers desde Windows Update, por clase de riesgo | Minutos |
 | **Instalar programas** | Chrome, Acrobat Reader, 7-Zip, Visual C++ Redistributable, RustDesk y más | Variable |
 | **Deshacer la última reparación** | Revierte los cambios, incluso semanas después | Segundos |
+
+El análisis **arranca solo al abrir la aplicación**: no hay que apretar nada para ver el estado del
+equipo.
 
 ### El diagnóstico separa dos cosas
 
@@ -59,7 +63,8 @@ Esta lista es tan importante como la de funciones, y **es el diferenciador frent
 - Listas de servicios copiadas de foros — rompen Windows Update, Store, audio e impresión
 - Desactivar Windows Defender
 - «Tweaks gamer» de resolución de timer
-- Instalar drivers automáticamente — un driver equivocado deja el equipo inservible
+- Instalar firmware o BIOS — un flasheo fallido es daño físico, no «reinstalar»
+- Desinstalar programas por su cuenta — los reporta y el técnico decide
 
 ---
 
@@ -137,7 +142,28 @@ Vienen preconfigurados: Google Chrome, Adobe Acrobat Reader, 7-Zip, Visual C++ R
 - **Visual C++ Redistributable** merece estar en la lista: arregla la mayoría de los errores de
   «falta tal DLL» después de reinstalar Windows.
 
-Agregar un programa es una línea en un archivo de configuración, sin recompilar.
+**Cada programa se baja de su origen oficial, directamente del fabricante.** Esto importa más de lo
+que parece: las herramientas que usan un gestor de paquetes dependen de que ese gestor esté
+instalado y funcionando, y cuando no lo está el técnico se queda sin nada. Acá los diez se instalan
+igual.
+
+Cada URL se verificó pidiéndola de verdad antes de configurarla. **Ninguna fuente se escribe de
+memoria.**
+
+Agregar un programa es una entrada en un archivo de configuración, sin recompilar.
+
+### Mientras instala, cuenta una historia
+
+Cada programa muestra un hecho real sobre su origen mientras se descarga, con su logo y una barra de
+avance propia con los megabytes. Una instalación de varios minutos con una barra quieta se siente
+eterna y deja al técnico sin nada que decirle al cliente.
+
+### Programas predeterminados
+
+Deja Chrome como navegador y Acrobat Reader para los PDF, por la vía oficial de Microsoft. **Alcance
+real: los perfiles de usuario que se creen después** — para un técnico que prepara un equipo antes de
+entregarlo, es justo lo que hace falta. Para el perfil que ya está abierto, Windows bloquea el cambio
+automático desde 2024, y EasyFix no se pelea con esa protección.
 
 ---
 
@@ -159,19 +185,32 @@ ninguna reparación de software lo resuelve.
 
 ## Estado real del proyecto — importante para la web
 
-**Es pre-lanzamiento (v0.6.0). No está listo para distribuir.** La web **no debería ofrecer descarga
-todavía**, por tres razones concretas:
+**Es v0.17.0 y se está probando en equipos reales.** Se publica en GitHub Releases con cada
+versión, pero **la web todavía no debería ofrecerlo como producto terminado**, por dos razones
+concretas:
 
 1. **El ejecutable no está firmado digitalmente.** Windows SmartScreen lo marca como desconocido y
    Defender puede clasificarlo como riesgoso, porque toca claves del registro y servicios. Firmarlo
-   cuesta entre 100 y 300 dólares al año.
-2. **Varias funciones se escribieron pero nunca se ejecutaron en Windows.** Concretamente los cuatro
-   fixes de rendimiento, el lector de programas de inicio, el botón de deshacer y la instalación de
-   Chrome y RustDesk por descarga directa.
-3. **Se está probando en equipos reales y todavía aparecen fallos** en cada ronda de pruebas.
+   cuesta entre 100 y 300 dólares al año. **Es el único bloqueo que no se resuelve programando.**
+2. **Cada ronda de pruebas en equipos reales sigue encontrando fallos** — las últimas tres versiones
+   salieron de reportes de uso en sitio, no de una lista de funciones pendientes.
 
-Lo que **sí** está probado en equipos reales: el diagnóstico completo, el punto de restauración, y
-las reparaciones de archivos de sistema, disco, Windows Update y red.
+Lo que **sí** está probado en equipos reales: el diagnóstico completo, el punto de restauración, las
+reparaciones de archivos de sistema, disco, Windows Update y red, y la instalación de programas.
+
+Lo que **nunca se ejecutó en Windows**, dicho con el mismo criterio que la app aplica a sus
+diagnósticos: cómo se ve la interfaz renderizada, el catálogo de controladores de Windows Update, y
+que los instaladores corran en silencio con los argumentos configurados.
+
+### Cómo se trabaja el proyecto
+
+Dos reglas que explican por qué las versiones salen como salen, y que valen como argumento de
+confianza:
+
+- **Nunca se afirma algo que no se midió.** Es la regla de la que salieron cuatro versiones seguidas
+  de correcciones: la herramienta reportaba diagnósticos que no había verificado.
+- **Nunca se ajusta una prueba para que pase.** Si una prueba falla, se corrige el producto o se
+  explica por qué la prueba estaba mal — y se para después de tres intentos en vez de insistir.
 
 ### Qué se puede afirmar y qué no
 
@@ -182,7 +221,9 @@ las reparaciones de archivos de sistema, disco, Windows Update y red.
 | «Se niega a trabajar si el disco está fallando» | «Arregla los pantallazos azules» (los **diagnostica**; solo los arregla si la causa es software) |
 | «Dice qué no puede arreglar el software» | «Optimiza el registro» (no lo hace, a propósito) |
 | «Un solo archivo, sin instalar nada» | «Compatible con todas las versiones de Windows» (es 10 y 11) |
-| «En desarrollo, en pruebas» | Ofrecer descarga pública |
+| «Instala el software base desde el origen oficial de cada fabricante» | «Instala cualquier programa» (son diez, curados) |
+| «Actualiza controladores seguros; el resto los nombra» | «Actualiza todos los controladores» (firmware y BIOS, nunca) |
+| «En desarrollo, en pruebas» | Ofrecer descarga pública como producto terminado |
 
 ---
 
@@ -194,16 +235,23 @@ las reparaciones de archivos de sistema, disco, Windows Update y red.
 | Tecnología | C# / .NET 8 con WPF |
 | Distribución | Un `.exe` autocontenido de ~69 MB, sin instalador |
 | Permisos | Requiere administrador (declarado en el manifiesto) |
-| Interfaz | Ventana fija de 460 × 700, tema oscuro, un solo color de acento (`#4C9AFF`), en español |
+| Interfaz | Ventana redimensionable y maximizable (mínimo 860 × 560), tema claro y oscuro automático, en español |
 | Telemetría | **Ninguna.** No envía datos a ningún servidor |
 | Registros | En el equipo del cliente, en `C:\ProgramData\EasyFix\` |
-| Repositorio | Privado |
+| Pruebas automatizadas | 619, corriendo en Windows en cada cambio |
+| Repositorio | https://github.com/sephiroth30-dev/EasyFix |
 
 ### Identidad visual actual
 
-Tema oscuro. Fondo `#16181D`, superficie `#1E2127`, texto `#F2F4F8`, acento `#4C9AFF`, advertencia
-`#E8B657`, crítico `#FF6B6B`, correcto `#5EC98A`. Tipografía Segoe UI Variable. Cero gradientes, cero
-iconos decorativos, mucho espacio en blanco.
+Dos paletas —clara y oscura— que siguen el tema de Windows. En oscuro: fondo `#16181D`, superficie
+`#1E2127`, texto `#F2F4F8`, acento `#4C9AFF`, advertencia `#E8B657`, crítico `#FF6B6B`, correcto
+`#5EC98A`. Tipografía Segoe UI Variable. Cero gradientes, cero iconos decorativos, mucho espacio en
+blanco.
+
+**Minimalismo y esencialismo, en serio:** no hay barra lateral, no hay botones para cosas que la
+aplicación debería hacer sola, y **no hay explicaciones ni descargos técnicos en pantalla**. El
+resumen destaca únicamente lo que necesita atención; lo que está en orden se cuenta, no se enumera.
+Cada programa muestra su logo real mientras se instala.
 
 El título de la ventana dice **«EasyFix — por Andrés Hernández»** con la versión al lado.
 
